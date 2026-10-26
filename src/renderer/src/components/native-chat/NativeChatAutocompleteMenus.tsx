@@ -239,15 +239,26 @@ function PickerListbox({
     if (!anchor) {
       return
     }
-    const measure = (): void => setBounds(anchor.getBoundingClientRect())
+    const measure = (): void => {
+      const next = anchor.getBoundingClientRect()
+      setBounds((current) =>
+        current?.left === next.left && current.width === next.width && current.top === next.top
+          ? current
+          : next
+      )
+    }
+    const ancestors: HTMLElement[] = []
+    for (let parent: HTMLElement | null = anchor; parent; parent = parent.parentElement) {
+      ancestors.push(parent)
+    }
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(anchor)
-    window.addEventListener('scroll', measure, true)
+    ancestors.forEach((parent) => parent.addEventListener('scroll', measure))
     window.addEventListener('resize', measure)
     return () => {
       observer.disconnect()
-      window.removeEventListener('scroll', measure, true)
+      ancestors.forEach((parent) => parent.removeEventListener('scroll', measure))
       window.removeEventListener('resize', measure)
     }
   }, [])

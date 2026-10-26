@@ -22,6 +22,9 @@ import {
   records,
   refusedScopes,
   scopeListeners,
+  notifyDraftAppend,
+  ephemeralDrafts,
+  isNativeChatEditDraft,
   reconcileRestoredImageChecks,
   type DraftAppend,
   type DraftRecord
@@ -71,40 +74,10 @@ export type NativeChatComposerDraftChange = {
   owner?: NativeChatComposerDraftOwner
 }
 
-export type NativeChatEditDraftDestination = { scopeKey: string; active: boolean }
-const ephemeralDrafts = new Map<string, NativeChatEditDraftDestination>()
-
-export function captureNativeChatEditDraftDestination(
-  scopeKey: string
-): NativeChatEditDraftDestination | undefined {
-  return ephemeralDrafts.get(scopeKey)
-}
-
-export function redirectNativeChatEditDraft(scopeKey: string, destination: string): void {
-  const target = ephemeralDrafts.get(scopeKey)
-  if (target) {
-    target.scopeKey = destination
-  }
-}
-
-export function isNativeChatEditDraft(scopeKey: string): boolean {
-  return scopeKey.startsWith('queued-edit:')
-}
-
 /** Edit scopes share input machinery but never enter draft persistence. */
 export function openNativeChatEditDraft(scopeKey: string, draft: NativeChatComposerDraft): void {
   ephemeralDrafts.set(scopeKey, { scopeKey, active: true })
   updateNativeChatComposerDraft(scopeKey, draft, 'immediate')
-}
-
-export function closeNativeChatEditDraft(scopeKey: string): void {
-  const target = ephemeralDrafts.get(scopeKey)
-  if (target?.scopeKey === scopeKey) {
-    target.active = false
-  }
-  ephemeralDrafts.delete(scopeKey)
-  records.delete(scopeKey)
-  notifyScope(scopeKey)
 }
 
 const EMPTY_DRAFT: DraftRecord = { text: '', images: [], savedAt: 0 }
@@ -248,6 +221,9 @@ export function appendToNativeChatComposerDraft(
     'immediate',
     (loaded) => withAddition(loaded, placed)
   )
+  if (text !== current.text) {
+    notifyDraftAppend(scopeKey, placed, current)
+  }
   const after = records.get(scopeKey)
   if (!after) {
     return true
@@ -344,3 +320,13 @@ export function clearNativeChatComposerDraftsForTests(): void {
   setNativeChatComposerDraftStorageForTests(null)
   resolveOwner = null
 }
+
+export { subscribeToNativeChatComposerDraftAppend } from './native-chat-composer-draft-memory'
+
+export {
+  captureNativeChatEditDraftDestination,
+  redirectNativeChatEditDraft,
+  isNativeChatEditDraft,
+  closeNativeChatEditDraft,
+  type NativeChatEditDraftDestination
+} from './native-chat-composer-draft-memory'

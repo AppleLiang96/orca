@@ -11,6 +11,8 @@ import { useMobileNativeChatImageAttachments } from './use-mobile-native-chat-im
 
 // Stub the media seam so direct Expo imports would expose unsupported Flow syntax and fail the transform.
 const pick = vi.hoisted(() => vi.fn())
+const ids = vi.hoisted(() => ({ next: 0 }))
+vi.mock('../../../../../src/shared/uuid-v4', () => ({ createUuidV4: () => `img-${++ids.next}` }))
 vi.mock('../../../platform/media-picker', () => ({ useMediaPicker: () => ({ pickImages: pick }) }))
 
 function ok(id: string, result: unknown): RpcSuccess {
@@ -87,6 +89,7 @@ describe('useMobileNativeChatImageAttachments', () => {
 
   beforeEach(() => {
     resetMobileNativeChatDraftInputsForTests()
+    ids.next = 0
     pick.mockReset()
     resetMobileNativeChatStaleInputForTests()
     resetMobileNativeChatTerminalWritesForTests()

@@ -3,6 +3,7 @@
 import type { JSONContent } from '@tiptap/react'
 import { promptTextContent, appendPromptDocumentText } from './native-chat-prompt-document-text'
 import { appendReturnedDraftText } from '../../../../shared/returned-draft-text'
+import { isLoneStructuredAgentSessionConversationCommand } from '../../../../shared/structured-agent-session-composer'
 import { basename } from '@/lib/path'
 import type {
   NativeChatComposerDraft,
@@ -61,7 +62,21 @@ export function withNativeChatComposerDraftAddition(
       pastedTextFiles: draft.pastedTextFiles
     }
   }
-  const text = appendReturnedDraftText(draft.text, addition.text ?? '')
+  const returned = addition.text ?? ''
+  const kept = draft.text.trimEnd()
+  const replaces = kept === '' || isLoneStructuredAgentSessionConversationCommand(kept)
+  let text = appendReturnedDraftText(draft.text, returned)
+  const returnedBlocks = addition.document?.content ?? []
+  const heldBlocks = draft.document?.content ?? promptTextContent(draft.text).content ?? []
+  // Equal visible tokens do not establish equal selected files.
+  if (
+    addition.document &&
+    returned.trim() &&
+    text === draft.text &&
+    JSON.stringify(heldBlocks.slice(-returnedBlocks.length)) !== JSON.stringify(returnedBlocks)
+  ) {
+    text = `${kept}\n\n${returned}`
+  }
   const images = [...draft.images]
   let at = addition.before ? images.findIndex((held) => held.id === addition.before) : -1
   for (const image of addition.images ?? []) {
@@ -78,18 +93,26 @@ export function withNativeChatComposerDraftAddition(
     }
   }
   const document =
-    addition.document && text !== draft.text
-      ? {
-          type: 'doc',
-          content: [
-            ...(draft.text.trim()
-              ? ((draft.document ?? promptTextContent(draft.text)).content ?? [])
-              : []),
-            ...(draft.text.trim() ? [{ type: 'paragraph' }] : []),
-            ...(addition.document.content ?? [])
-          ]
-        }
-      : appendPromptDocumentText(draft.document, draft.text, text)
+    text === draft.text
+      ? draft.document
+      : addition.document
+        ? replaces
+          ? addition.document
+          : {
+              type: 'doc',
+              content: [
+                ...(appendPromptDocumentText(
+                  draft.document ?? promptTextContent(draft.text),
+                  draft.text,
+                  kept
+                )?.content ?? []),
+                { type: 'paragraph' },
+                ...returnedBlocks
+              ]
+            }
+        : replaces
+          ? promptTextContent(text)
+          : appendPromptDocumentText(draft.document, draft.text, text)
   return {
     text,
     images,

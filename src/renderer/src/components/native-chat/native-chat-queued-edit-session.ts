@@ -1,10 +1,18 @@
+import type { NativeChatComposerDraft } from './native-chat-composer-draft-storage'
+import {
+  nativeChatComposerDraftLeftAfterSend,
+  sameNativeChatComposerDraftDocument
+} from './native-chat-composer-draft-comparison'
+import {
+  readNativeChatComposerDraft,
+  updateNativeChatComposerDraft
+} from './native-chat-composer-draft-store'
+import { promptMarkersToImageReferences } from '../../../../shared/native-chat-image-transcript-markers'
+import { nativeChatImageRowIds } from './native-chat-composer-image-references'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
-import {
-  nativeChatQueuedEditDirty,
-  handBackNativeChatQueuedEdit
-} from './native-chat-queued-edit-draft'
+import { handBackNativeChatQueuedEdit } from './native-chat-queued-edit-draft'
 import { subscribeToNativeChatComposerDraft } from './native-chat-composer-draft-store'
 import { subscribeToNativeChatPendingAttachments } from './native-chat-pending-attachment-cache'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
@@ -46,6 +54,10 @@ export type NativeChatQueuedEditSession = NativeChatQueuedEditDraft & {
   baseFingerprint: string
   acquiring: boolean
   saving: boolean
+  submitted?: {
+    fingerprint: string
+    draft: NativeChatComposerDraft
+  }
   closed: boolean
   pendingClose: boolean
   view: {
@@ -85,7 +97,7 @@ export function useNativeChatQueuedEditLifetime({
         edit.pendingClose = true
         return
       }
-      if (nativeChatQueuedEditDirty(edit) && handBackNativeChatQueuedEdit(edit)) {
+      if (handBackNativeChatQueuedEdit(edit)) {
         toast.error(
           translate(
             'components.native-chat.queuedMessages.editReturned',
@@ -118,4 +130,48 @@ export function useNativeChatQueuedEditLifetime({
       unpending()
     }
   }, [shownScope, render, active])
+}
+
+export function acceptNativeChatQueuedEditDraft(edit: NativeChatQueuedEditSession): void {
+  const current = readNativeChatComposerDraft(edit.scopeKey)
+  const submitted = edit.submitted?.draft ?? current
+  const changedIdentity =
+    current.text === submitted.text &&
+    !sameNativeChatComposerDraftDocument(current.document, submitted.document)
+  const left = changedIdentity
+    ? current
+    : (nativeChatComposerDraftLeftAfterSend(current, submitted) ?? current)
+  updateNativeChatComposerDraft(edit.scopeKey, left, 'immediate')
+  handBackNativeChatQueuedEdit({
+    ...edit,
+    initial: { text: '', images: [] },
+    body: { ...edit.body, skills: undefined }
+  })
+}
+export function changeNativeChatQueuedEditText(
+  edit: NativeChatQueuedEditSession,
+  text: string
+): void {
+  if (!edit.acquiring && !edit.saving) {
+    updateNativeChatComposerDraft(
+      edit.scopeKey,
+      {
+        text: promptMarkersToImageReferences(text, nativeChatImageRowIds(edit.scopeKey)),
+        document: undefined
+      },
+      'immediate'
+    )
+  }
+}
+
+export type StructuredQueuedEditArgs = {
+  transport: QueuedEditTransport
+  /** The host's published cards, for each card's full body. */
+  messages: readonly AgentSessionQueuedMessage[] | null
+  /** The cards this pane shows; a card that leaves them has left the queue. */
+  cards: readonly QueuedMessageCard[]
+  submissions: readonly AgentJournalSubmission[]
+  composerScopeKey: string | undefined
+  /** A question or approval holds the chat box's place. */
+  promptOpen: boolean
 }

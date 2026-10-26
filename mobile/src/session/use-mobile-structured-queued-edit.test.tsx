@@ -1,4 +1,5 @@
 import {
+  resetMobileNativeChatDraftStoreForTests,
   useMobileNativeChatDraft,
   setMobileNativeChatDraftText
 } from './native-chat/composer/mobile-native-chat-draft-store'
@@ -130,6 +131,7 @@ describe('mobile in-place queued Edit', () => {
   async function mount(message: AgentSessionQueuedMessage, editSupport: boolean | null = true) {
     vi.clearAllMocks()
     resetMobileNativeChatDraftInputsForTests()
+    resetMobileNativeChatDraftStoreForTests()
     sendRequest.mockImplementation(async (method, params) =>
       method === 'agentSession.queuedMessageUpdate'
         ? mutationOk({ status: 'updated', messageId: message.messageId, fingerprint: 'new' })
@@ -163,6 +165,104 @@ describe('mobile in-place queued Edit', () => {
     await act(async () => renderer?.update(createElement(Harness, { editSupport: false })))
     expect(hook!.queued.edit).toEqual(expect.any(Function))
   })
+
+  it.each([
+    [false, false],
+    [true, false],
+    [false, true],
+    [true, true]
+  ])(
+    'sends own optional keys only for host image=%s skill=%s capabilities',
+    async (imagesSupport, skillsSupport) => {
+      const message = queuedDraft({
+        messageId: 'matrix',
+        body: {
+          kind: 'message',
+          role: 'user',
+          blocks: [
+            { type: 'text', text: '$review original' },
+            {
+              type: 'image-ref',
+              path: '/host/original.png',
+              alt: 'original'
+            }
+          ],
+          skills: [{ name: 'review', path: '/host/old/SKILL.md' }]
+        }
+      })
+      await mount(message)
+      act(() => hook!.queued.editor!.cancel())
+      await act(async () =>
+        renderer!.update(createElement(Harness, { imagesSupport, skillsSupport }))
+      )
+      await act(async () => {
+        await hook!.queued.edit!('matrix')
+      })
+      act(() => hook!.queued.editor!.change('$review changed'))
+      await act(async () => {
+        expect(await hook!.queued.editor!.save()).toBe(true)
+      })
+      const request = fieldsOf(
+        sendRequest.mock.calls.find(
+          ([method]) => method === 'agentSession.queuedMessageUpdate'
+        )?.[1]
+      )
+      expect(Object.hasOwn(request, 'images')).toBe(imagesSupport)
+      expect(Object.hasOwn(request, 'skills')).toBe(skillsSupport)
+      if (imagesSupport) {
+        expect(request.images).toEqual([message.body.blocks[1]])
+      }
+      if (skillsSupport) {
+        expect(request.skills).toEqual(message.body.skills)
+      }
+      // The old-host path leaves image blocks on the host while changing only text.
+      const edited = queuedMessageWithEdit(message.body, {
+        text: String(request.text),
+        ...(imagesSupport
+          ? {
+              images: [
+                {
+                  type: 'image-ref' as const,
+                  path: '/host/original.png',
+                  alt: 'original'
+                }
+              ]
+            }
+          : {}),
+        ...(skillsSupport ? { skills: message.body.skills } : {})
+      })
+      expect(edited.ok && edited.body.blocks.filter((block) => block.type === 'image-ref')).toEqual(
+        [message.body.blocks[1]]
+      )
+    }
+  )
+
+  it.each([false, true])(
+    'clean departure redirects captured dictation and Cancel=%s retires it',
+    async (cancel) => {
+      await mount(queuedDraft({ messageId: 'clean-dictation' }))
+      act(() => hook!.queued.editor!.cancel())
+      await act(async () =>
+        renderer!.update(createElement(Harness, { composerScopeKey: 'original-bottom' }))
+      )
+      await act(async () => {
+        await hook!.queued.edit!('clean-dictation')
+      })
+      const insert = hook!.queued.editor!.insertDictation!
+      if (cancel) {
+        act(() => hook!.queued.editor!.cancel())
+      } else {
+        await act(async () =>
+          renderer!.update(
+            createElement(Harness, { sessionId: 'elsewhere', composerScopeKey: 'elsewhere' })
+          )
+        )
+      }
+      act(() => setMobileNativeChatDraftText('original-bottom', 'bottom'))
+      act(() => expect(insert('later')).toBe(!cancel))
+      expect(bottomText).toBe(cancel ? 'bottom' : 'bottom later')
+    }
+  )
 
   it('holds and renews a card while typing, sends only its edited text, and cancels in place', async () => {
     const message = queuedDraft({
@@ -263,6 +363,70 @@ describe('mobile in-place queued Edit', () => {
     expect(error).not.toHaveBeenCalled()
     expect(append).toHaveBeenCalledTimes(1)
   })
+
+  it('preserves typing made after an unknown result when delayed proof arrives', async () => {
+    const message = queuedDraft({ messageId: 'late-proof' })
+    await mount(message)
+    sendRequest.mockImplementation(async (method, params) => {
+      if (method === 'agentSession.queuedMessageUpdate') {
+        throw markRpcDeliveryUnknown(new Error('lost'))
+      }
+      return readOrHoldReply(method, params)
+    })
+    act(() => hook!.queued.editor!.change('submitted'))
+    await act(async () => {
+      await hook!.queued.editor!.save()
+    })
+    act(() => hook!.queued.editor!.change('submitted plus unsaved'))
+    act(() => listener?.(batchEvent([{ ...message, body: withText(message.body, 'submitted') }])))
+    expect(hook!.queued.editor).toBeUndefined()
+    expect(append).toHaveBeenCalledExactlyOnceWith(' plus unsaved')
+  })
+
+  it.each(['updated', 'not-editable'] as const)(
+    'retains dictation during a deferred %s Save and after success',
+    async (status) => {
+      const message = queuedDraft({ messageId: 'dictation-save' })
+      await mount(message)
+      act(() => hook!.queued.editor!.cancel())
+      await act(async () =>
+        renderer?.update(createElement(Harness, { composerScopeKey: 'original-bottom' }))
+      )
+      await act(async () => {
+        await hook!.queued.edit!(message.messageId)
+      })
+      let reply: ((response: RpcResponse) => void) | undefined
+      sendRequest.mockImplementation((method, params) =>
+        method === 'agentSession.queuedMessageUpdate'
+          ? new Promise((resolve) => {
+              reply = resolve
+            })
+          : Promise.resolve(readOrHoldReply(method, params))
+      )
+      act(() => hook!.queued.editor!.change('submitted'))
+      const insert = hook!.queued.editor!.insertDictation!
+      let saving: Promise<boolean> | undefined
+      act(() => {
+        saving = hook!.queued.editor!.save()
+      })
+      act(() => {
+        expect(insert('speech')).toBe(true)
+      })
+      await act(async () => {
+        reply!(mutationOk({ status, messageId: message.messageId }))
+        await saving
+      })
+      if (status === 'updated') {
+        expect(bottomText).toBe(' speech')
+        act(() => {
+          expect(insert('later')).toBe(true)
+        })
+        expect(bottomText).toBe(' speech later')
+      } else {
+        expect(hook!.queued.editor!.text).toBe('submitted speech')
+      }
+    }
+  )
 
   it('preserves unsaved typing once and releases the hold when changing chats', async () => {
     await mount(queuedDraft({ messageId: 'draft-1' }))

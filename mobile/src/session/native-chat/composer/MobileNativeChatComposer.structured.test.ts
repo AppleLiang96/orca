@@ -1,3 +1,31 @@
+import { useMobileNativeChatImageAttachments } from './use-mobile-native-chat-image-attachments'
+import {
+  useMobileNativeChatDraft,
+  setMobileNativeChatDraftText,
+  clearMobileNativeChatDraftForSend,
+  readMobileNativeChatDraftEditGeneration
+} from './mobile-native-chat-draft-store'
+import {
+  readMobileNativeChatDraftInputs,
+  updateMobileNativeChatDraftInputs,
+  resetMobileNativeChatDraftInputsForTests
+} from './mobile-native-chat-draft-inputs'
+import { useMobileStructuredAgentSession } from '../../use-mobile-structured-agent-session'
+import {
+  CAPABLE,
+  SESSION_ID,
+  snapshotEvent,
+  mutationOk,
+  ok
+} from '../../use-mobile-structured-agent-session-queued.test-fixture'
+import { structuredSendResultFixture } from '../../structured-agent-send-result.test-fixture'
+import type { RpcClient } from '../../../transport/rpc-client'
+vi.mock('../../../platform/media-picker', () => ({
+  useMediaPicker: () => ({ pickImages: async () => [] })
+}))
+vi.mock('@react-native-async-storage/async-storage', () => ({
+  default: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} }
+}))
 import { createElement, type ComponentProps } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -98,6 +126,187 @@ describe('MobileNativeChatComposer on a structured chat', () => {
       (node) => node.props.accessibilityLabel === label && node.props.onPress !== undefined
     )
   const drawers = () => renderer!.root.findAll((node) => node.props.onHidden !== undefined)
+
+  it.each(['', 'See this'])(
+    'sends an ordinary image with %j text through the real RPC and clears its visible chip',
+    async (text) => {
+      const scope = `image-rpc-${text}`
+      resetMobileNativeChatDraftInputsForTests()
+      updateMobileNativeChatDraftInputs(scope, (input) => ({
+        ...input,
+        images: [{ id: 'photo', path: '/remote/photo.png', previewUri: 'file:///phone-photo.png' }]
+      }))
+      let publish: ((data: unknown) => void) | undefined
+      const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method) =>
+        method === 'agentSession.send'
+          ? mutationOk(structuredSendResultFixture('accepted'))
+          : ok({ models: [], current: {} })
+      )
+      const client: RpcClient = {
+        sendRequest,
+        subscribe: (_m, _p, listener) => {
+          publish = listener
+          return () => {}
+        },
+        updateTerminalSubscriptionViewport: () => {},
+        getState: () => 'connected',
+        getReconnectAttempt: () => 0,
+        getLastConnectedAt: () => null,
+        onStateChange: () => () => {},
+        notifyForeground: () => {},
+        close: () => {}
+      }
+      function Conversation() {
+        const session = useMobileStructuredAgentSession({
+          client,
+          sessionId: SESSION_ID,
+          sourceIdentity: 'host',
+          enabled: true,
+          connected: true,
+          agent: 'codex',
+          hostSupport: CAPABLE,
+          composerScopeKey: scope,
+          onSendError: vi.fn()
+        })
+        const image = useMobileNativeChatImageAttachments({
+          client,
+          agent: 'codex',
+          activeHandleRef: { current: null },
+          deviceTokenRef: { current: null },
+          getActiveWorktreeConnectionId: async () => null,
+          connState: 'connected',
+          scopeKey: scope,
+          enabled: true,
+          structuredNativeChat: true,
+          showToast: vi.fn(),
+          onSendError: vi.fn(),
+          baseSend: session.sendWithOutcome,
+          readSeededLaunchDraft: () => null
+        })
+        return draw({
+          value: text,
+          onSend: image.sendNativeChat,
+          attachments: image.attachments,
+          onRemoveAttachment: image.removeAttachment,
+          structured: structured()
+        })
+      }
+      await act(async () => {
+        renderer = create(createElement(Conversation))
+      })
+      act(() => publish?.(snapshotEvent()))
+      expect(labelled('Remove image')[0]).toBeDefined()
+      await act(async () => labelled('Send message')[0]!.props.onPress())
+      const request = sendRequest.mock.calls.find(([method]) => method === 'agentSession.send')?.[1]
+      expect(request).toMatchObject({
+        body: {
+          blocks: [
+            ...(text ? [{ type: 'text', text }] : []),
+            { type: 'image-ref', path: '/remote/photo.png' }
+          ]
+        }
+      })
+      expect(readMobileNativeChatDraftInputs(scope).images).toEqual([])
+      expect(labelled('Remove image')).toEqual([])
+    }
+  )
+
+  it('carries an ordinary menu pick through the real Send RPC, clears on acceptance and forgets deleted identities', async () => {
+    const scope = 'normal-menu-rpc'
+    resetMobileNativeChatDraftInputsForTests()
+    setMobileNativeChatDraftText(scope, '/re')
+    let publish: ((data: unknown) => void) | undefined
+    const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method) =>
+      method === 'agentSession.send'
+        ? mutationOk(structuredSendResultFixture('accepted'))
+        : ok({ models: [], current: {} })
+    )
+    const client: RpcClient = {
+      sendRequest,
+      subscribe: (_m, _p, listener) => {
+        publish = listener
+        return () => {}
+      },
+      updateTerminalSubscriptionViewport: () => {},
+      getState: () => 'connected',
+      getReconnectAttempt: () => 0,
+      getLastConnectedAt: () => null,
+      onStateChange: () => () => {},
+      notifyForeground: () => {},
+      close: () => {}
+    }
+    function Conversation() {
+      const value = useMobileNativeChatDraft(scope)
+      const session = useMobileStructuredAgentSession({
+        client,
+        sessionId: SESSION_ID,
+        sourceIdentity: 'host',
+        enabled: true,
+        connected: true,
+        agent: 'codex',
+        hostSupport: CAPABLE,
+        composerScopeKey: scope,
+        onSendError: vi.fn()
+      })
+      return createElement(MobileNativeChatComposer, {
+        value,
+        agent: 'codex',
+        draftScopeKey: scope,
+        onChangeText: (text) => setMobileNativeChatDraftText(scope, text),
+        onPickSkill: (skill) =>
+          updateMobileNativeChatDraftInputs(scope, (input) => ({
+            ...input,
+            skills: [...input.skills, skill]
+          })),
+        onSend: async (text) => {
+          const generation = readMobileNativeChatDraftEditGeneration(scope)
+          const accepted = (await session.sendWithOutcome(text)) === 'accepted'
+          if (accepted) {
+            clearMobileNativeChatDraftForSend(scope, generation, text)
+          }
+          return accepted
+        },
+        sendSurfaceId: scope,
+        getSendCompletionGeneration: () => 0,
+        getComposerEditGeneration: () => readMobileNativeChatDraftEditGeneration(scope),
+        structured: structured({
+          catalog: {
+            reported: [{ name: 'review.v2', kind: 'skill', path: '/remote/review/SKILL.md' }],
+            conversationCommands: []
+          }
+        })
+      })
+    }
+    await act(async () => {
+      renderer = create(createElement(Conversation))
+    })
+    act(() => publish?.(snapshotEvent()))
+    act(() => field().props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
+    await act(async () => labelled('$review.v2')[0]!.props.onPress())
+    expect(field().props.value).toBe('$review.v2 ')
+    await act(async () => labelled('Send message')[0]!.props.onPress())
+    const request = sendRequest.mock.calls.find(([method]) => method === 'agentSession.send')?.[1]
+    expect(request).toMatchObject({
+      body: {
+        blocks: [{ type: 'text', text: '$review.v2' }],
+        skills: [{ name: 'review.v2', path: '/remote/review/SKILL.md' }]
+      }
+    })
+    expect(field().props.value).toBe('')
+    expect(readMobileNativeChatDraftInputs(scope).skills).toEqual([])
+    act(() => field().props.onChangeText('$review.v2 '))
+    await act(async () => labelled('Send message')[0]!.props.onPress())
+    expect(
+      sendRequest.mock.calls.findLast(([method]) => method === 'agentSession.send')?.[1]
+    ).not.toHaveProperty('body.skills')
+    // Pick again, delete, then retype: text alone cannot resurrect the old remote identity.
+    act(() => field().props.onChangeText('/re'))
+    act(() => field().props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
+    await act(async () => labelled('$review.v2')[0]!.props.onPress())
+    act(() => field().props.onChangeText(''))
+    act(() => field().props.onChangeText('$review.v2 '))
+    expect(readMobileNativeChatDraftInputs(scope).skills).toEqual([])
+  })
 
   it('puts a picked skill at the start of the draft, highlighted, and deletes it as one unit', async () => {
     const onChangeText = vi.fn()

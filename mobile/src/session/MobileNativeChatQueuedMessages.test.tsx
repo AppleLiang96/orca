@@ -1,3 +1,5 @@
+import { mobileQueuedMessageCards } from './mobile-structured-queued-message-cards'
+import { queuedDraft } from './use-mobile-structured-agent-session-queued.test-fixture'
 import { createElement } from 'react'
 import { findByHostType } from '../test-support/react-test-renderer-host-nodes'
 import { FakeSession } from '../transport/mobile-endpoint-supervisor-test-fakes'
@@ -22,6 +24,7 @@ vi.mock('react-native', () => ({
 }))
 
 vi.mock('lucide-react-native', () => ({
+  Image: 'Image',
   AlertCircle: 'AlertCircle',
   Check: 'Check',
   ChevronDown: 'ChevronDown',
@@ -125,6 +128,31 @@ describe('MobileNativeChatQueuedMessages', () => {
     expect(mounted.root.findByProps({ accessibilityLabel: 'More actions' }).props.disabled).toBe(
       true
     )
+  })
+
+  it('projects image-only and mixed queue blocks into the ordinary card line and edit boundary', async () => {
+    const image = { type: 'image-ref' as const, path: '/host/photo.png', alt: 'Diagram' }
+    const rows = [
+      queuedDraft({
+        messageId: 'image-only',
+        body: { kind: 'message', role: 'user', blocks: [image] }
+      }),
+      queuedDraft({
+        messageId: 'mixed',
+        body: { kind: 'message', role: 'user', blocks: [{ type: 'text', text: 'See this' }, image] }
+      })
+    ]
+    const cards = mobileQueuedMessageCards(rows, [])
+    const mounted = await mount({ cards, onSend: vi.fn(async () => true) })
+    expect(texts(mounted)).toContain('Diagram')
+    expect(texts(mounted)).toContain('See this')
+    expect(cards.map((card) => card.images)).toEqual([[image], [image]])
+    const editor = inlineEditor({ messageId: 'image-only', text: '' })
+    await act(async () =>
+      mounted.update(createElement(MobileNativeChatQueuedMessages, { cards, editor }))
+    )
+    expect(findByHostType(mounted.root, 'QueuedMessageComposer').props.editor).toBe(editor)
+    expect(texts(mounted)).toContain('See this')
   })
 
   it('draws a plain waiting card as one compact row with no caption', async () => {

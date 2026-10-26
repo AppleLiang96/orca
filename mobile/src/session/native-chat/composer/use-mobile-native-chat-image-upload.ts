@@ -1,5 +1,6 @@
 import {
   mobileNativeChatDraftDestination,
+  updateMobileNativeChatDraftInputs,
   type MobileNativeChatDraftDestination
 } from './mobile-native-chat-draft-inputs'
 import { useCallback, useLayoutEffect, useRef, useState } from 'react'
@@ -70,11 +71,16 @@ export function useMobileNativeChatImageUpload(args: {
         return
       }
       const destination = mobileNativeChatDraftDestination(scope)
+      updateMobileNativeChatDraftInputs(destination, (inputs) => ({
+        ...inputs,
+        pending: (inputs.pending ?? 0) + 1
+      }))
       let started = false
       const uploadedImages: UploadedNativeChatImage[] = []
       let uploadError: unknown = null
       try {
         await uploadMobileNativeChatImages(source, {
+          canContinue: () => destination.active,
           client,
           getConnectionId: getActiveWorktreeConnectionId,
           pickImages: picker.pickImages,
@@ -99,6 +105,10 @@ export function useMobileNativeChatImageUpload(args: {
         onImagesUploaded(destination, uploadedImages)
         onAttachSuccess?.()
       }
+      updateMobileNativeChatDraftInputs(destination, (inputs) => ({
+        ...inputs,
+        pending: Math.max(0, (inputs.pending ?? 0) - 1)
+      }))
       if (uploadError !== null && destination.active) {
         const message = uploadError instanceof Error ? uploadError.message : String(uploadError)
         onError?.()

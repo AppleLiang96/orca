@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 import { pickedSkillsInText } from '../../../../../src/shared/structured-agent-session-send-mutation'
 import type { AgentJournalSkillRef } from '../../../../../src/shared/agent-session-journal-types'
 import type { PendingNativeChatImage } from './mobile-native-chat-image-attachment'
@@ -12,7 +12,7 @@ export type MobileNativeChatDraftInputs = {
 }
 const empty: MobileNativeChatDraftInputs = { images: [], files: [], skills: [] }
 const drafts = new Map<string, MobileNativeChatDraftInputs>()
-const listeners = new Set<() => void>()
+const listeners = new Map<string, Set<() => void>>()
 // Operations capture this object: hand-back redirects it; Cancel removes its right to publish.
 export type MobileNativeChatDraftDestination = { scope: string; active: boolean }
 const destinations = new Map<string, MobileNativeChatDraftDestination>()
@@ -36,18 +36,31 @@ export function updateMobileNativeChatDraftInputs(
     return
   }
   drafts.set(destination.scope, update(readMobileNativeChatDraftInputs(destination.scope)))
-  listeners.forEach((listener) => listener())
+  listeners.get(destination.scope)?.forEach((listener) => listener())
+}
+export function subscribeMobileNativeChatDraftInputs(
+  scope: string | null,
+  listener: () => void
+): () => void {
+  if (!scope) {
+    return () => {}
+  }
+  const scoped = listeners.get(scope) ?? new Set<() => void>()
+  listeners.set(scope, scoped)
+  scoped.add(listener)
+  return () => {
+    scoped.delete(listener)
+    if (scoped.size === 0) {
+      listeners.delete(scope)
+    }
+  }
 }
 export function useMobileNativeChatDraftInputs(scope: string | null): MobileNativeChatDraftInputs {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => {
-        listeners.delete(listener)
-      }
-    },
-    () => readMobileNativeChatDraftInputs(scope)
+  const subscribe = useCallback(
+    (listener: () => void) => subscribeMobileNativeChatDraftInputs(scope, listener),
+    [scope]
   )
+  return useSyncExternalStore(subscribe, () => readMobileNativeChatDraftInputs(scope))
 }
 export function closeMobileNativeChatEditInputs(scope: string, to?: string): void {
   const destination = mobileNativeChatDraftDestination(scope)
@@ -65,14 +78,14 @@ export function closeMobileNativeChatEditInputs(scope: string, to?: string): voi
   }
   drafts.delete(scope)
   destinations.delete(scope)
-  listeners.forEach((listener) => listener())
+  listeners.get(scope)?.forEach((listener) => listener())
 }
 
-const textDestinations = new Map<string, (text: string) => void>()
+const textDestinations = new Map<string, (text: string) => boolean | void>()
 let focusedScope: string | null = null
 export function registerMobileNativeChatTextDestination(
   scope: string,
-  insert: (text: string) => void
+  insert: (text: string) => boolean | void
 ): () => void {
   textDestinations.set(scope, insert)
   return () => {
@@ -84,7 +97,9 @@ export function registerMobileNativeChatTextDestination(
 export function focusMobileNativeChatTextDestination(scope: string): void {
   focusedScope = scope
 }
-export function captureMobileNativeChatTextDestination(): ((text: string) => void) | undefined {
+export function captureMobileNativeChatTextDestination():
+  | ((text: string) => boolean | void)
+  | undefined {
   return focusedScope ? textDestinations.get(focusedScope) : undefined
 }
 

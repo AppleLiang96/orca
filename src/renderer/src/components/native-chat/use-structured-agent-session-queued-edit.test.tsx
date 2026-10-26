@@ -1,3 +1,9 @@
+import { captureInsertionTarget, insertText } from '../dictation/dictation-insertion-target'
+import { useNativeChatComposerEditSession } from './use-native-chat-composer-edit-session'
+import {
+  readNativeChatComposerDraft,
+  updateNativeChatComposerDraft
+} from './native-chat-composer-draft-store'
 // @vitest-environment happy-dom
 
 // Exercise real edit lifecycle with a scripted host: preserve dirty text on departure and keep lease failures from blocking typing/Save/Cancel.
@@ -297,6 +303,21 @@ describe('inline queued editor', () => {
     expect(readNativeChatDraftCache(SCOPE)).toBe('unsaved')
   })
 
+  it('reconciles delayed proof against the submitted snapshot and returns newer typing once', async () => {
+    const hook = harness()
+    await begin(hook)
+    act(() => hook.result.current.editor!.change('saved'))
+    answer = async () => ({ kind: 'unknown', failure: { kind: 'failed' } })
+    act(() => hook.result.current.editor!.save())
+    await waitFor(() => expect(hook.result.current.editor!.saving).toBe(false))
+    act(() => hook.result.current.editor!.change('saved plus unsaved'))
+    hook.rerender({ messages: [withText('saved')] })
+    expect(hook.result.current.editor).toBeUndefined()
+    expect(readNativeChatDraftCache(SCOPE)).toBe(' plus unsaved')
+    hook.rerender({ messages: [withText('saved')] })
+    expect(readNativeChatDraftCache(SCOPE)).toBe(' plus unsaved')
+  })
+
   it('a refused Save says why once and keeps the editor', async () => {
     answer = async () => ({
       kind: 'not-done',
@@ -522,3 +543,127 @@ describe('inline queued editor', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 })
+
+it.each(['updated', 'not-editable', 'clean-gone', 'cancel'] as const)(
+  'routes captured real dictation registration across %s',
+  async (outcome) => {
+    const root = document.createElement('div')
+    const field = document.createElement('textarea')
+    root.append(field)
+    document.body.append(root)
+    const hook = renderHook(() => {
+      const queued = useStructuredAgentSessionQueuedEdit({
+        transport: {
+          target: { kind: 'environment', environmentId: 'remote-host' },
+          sessionId: SESSION,
+          capable: true,
+          write
+        },
+        messages: [message],
+        cards: projectQueuedMessageCards([message], [], {}),
+        submissions: [],
+        composerScopeKey: SCOPE,
+        promptOpen: true
+      })
+      const editor = queued.editor
+      useNativeChatComposerEditSession({
+        editSession: editor
+          ? { save: editor.save, cancel: editor.cancel, canSave: editor.canSave }
+          : undefined,
+        root: { current: root },
+        handle: {
+          current: {
+            focus: () => true,
+            acceptsText: () => !editor?.saving,
+            insertTypedText: (text) => {
+              if (!editor || editor.saving) {
+                return false
+              }
+              updateNativeChatComposerDraft(
+                editor.draftScopeKey,
+                { text: readNativeChatComposerDraft(editor.draftScopeKey).text + text },
+                'immediate'
+              )
+              return true
+            },
+            appendText: () => {},
+            contains: () => true,
+            handlePasteEvent: () => {},
+            pasteFromClipboard: () => {}
+          }
+        },
+        draftScopeKey: editor?.draftScopeKey ?? SCOPE,
+        agent: 'codex',
+        isPickedSkill: () => false,
+        structuredTransport: undefined,
+        sendStructured: () => {},
+        ptyCommandRouting: {
+          agent: 'codex',
+          disabled: false,
+          isDispatchingSessionOption: false,
+          resolveTarget: () => null,
+          sessionOptionsSurface: null,
+          trackPendingSend: () => {},
+          setDraft: () => {},
+          setCaret: () => {},
+          setActiveSuggestion: () => {},
+          clearSkillOrigin: () => {},
+          clearImageAttachments: () => {},
+          setNotice: () => {}
+        },
+        setNotice: () => {},
+        disabled: editor?.saving ?? false,
+        sendHeld: false,
+        draft: editor?.text ?? '',
+        sendMessage: () => {},
+        completeItem: () => {}
+      })
+      return queued
+    })
+    await act(() => hook.result.current.begin('card'))
+    field.focus()
+    const captured = captureInsertionTarget()
+    expect(captured?.kind).toBe('composer')
+    if (!captured) {
+      throw new Error('missing dictation target')
+    }
+    if (outcome === 'clean-gone') {
+      hook.unmount()
+    } else if (outcome === 'cancel') {
+      act(() => hook.result.current.editor!.cancel())
+    } else {
+      let reply: ((value: Outcome) => void) | undefined
+      answer = () =>
+        new Promise((resolve) => {
+          reply = resolve
+        })
+      act(() => hook.result.current.editor!.change('submitted'))
+      act(() => hook.result.current.editor!.save())
+      act(() => insertText('speech', captured))
+      await act(async () =>
+        reply!({
+          kind: 'done',
+          value: {
+            status: outcome,
+            messageId: 'card',
+            ...(outcome === 'updated' ? { fingerprint: 'f' } : {})
+          }
+        })
+      )
+      if (outcome === 'not-editable') {
+        expect(hook.result.current.editor!.text).toContain('speech')
+      }
+    }
+    act(() => insertText('later', captured))
+    if (outcome === 'cancel') {
+      expect(readNativeChatDraftCache(SCOPE)).toBe('')
+    } else if (outcome !== 'not-editable') {
+      expect(readNativeChatDraftCache(SCOPE)).toContain('later')
+      expect(readNativeChatDraftCache(SCOPE)).not.toContain('submitted')
+    }
+    if (outcome !== 'clean-gone') {
+      hook.unmount()
+    }
+    root.remove()
+  }
+)

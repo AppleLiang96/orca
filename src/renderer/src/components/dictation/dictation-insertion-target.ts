@@ -16,7 +16,7 @@ export type DictationInsertionTarget =
   | { kind: 'text'; element: HTMLInputElement | HTMLTextAreaElement }
   | { kind: 'contentEditable'; element: HTMLElement }
 
-const composerTargets = new Map<HTMLElement, (text: string) => void>()
+const composerTargets = new WeakMap<HTMLElement, (text: string) => void>()
 
 /** Capture a draft destination so a late transcript can follow an inline edit's hand-back. */
 export function registerDictationComposerTarget(
@@ -47,8 +47,9 @@ function readFocusedInsertionTarget(): DictationInsertionTarget | null {
     return null
   }
 
-  for (const [root, insert] of composerTargets) {
-    if (root.contains(activeElement)) {
+  for (let root: Element | null = activeElement; root; root = root.parentElement) {
+    const insert = root instanceof HTMLElement ? composerTargets.get(root) : undefined
+    if (insert) {
       return { kind: 'composer', insert }
     }
   }

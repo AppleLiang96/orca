@@ -43,8 +43,9 @@ export function useNativeChatFileDrops(args: Args) {
     [captureReservedAttachments, destinationKey]
   )
   return {
-    ...useNativeChatFileAttachmentActions(external.attachExternalPaths),
+    ...useNativeChatFileAttachmentActions(external.captureExternalDrop),
     attachExternalPaths: external.attachExternalPaths,
+    captureExternalPaths: external.captureExternalDrop,
     captureCopiedFiles,
     resolveAttachmentOwner: external.resolveAttachmentOwner
   }

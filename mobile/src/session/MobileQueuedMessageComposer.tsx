@@ -1,6 +1,4 @@
-import { setMobileNativeChatDraftText } from './native-chat/composer/mobile-native-chat-draft-store'
-import { appendReturnedDraftText } from '../../../src/shared/returned-draft-text'
-import { useContext, useEffect, useLayoutEffect, useRef, useCallback } from 'react'
+import { useContext, useEffect, useRef } from 'react'
 import { MobileQueuedMessageComposerContext } from './mobile-queued-message-composer-context'
 import { Text, type TextInput, View } from 'react-native'
 import { MobileNativeChatComposer } from './native-chat/composer/MobileNativeChatComposer'
@@ -9,7 +7,6 @@ import { useMobileNativeChatFileAttachments } from './native-chat/composer/use-m
 import { useMobileNativeChatImageUpload } from './native-chat/composer/use-mobile-native-chat-image-upload'
 import {
   updateMobileNativeChatDraftInputs,
-  mobileNativeChatDraftDestination,
   useMobileNativeChatDraftInputs
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
 import {
@@ -51,26 +48,6 @@ export function MobileQueuedMessageComposer({
         images: [...current.images, ...images.map((image) => ({ ...image, id: createUuidV4() }))]
       }))
   })
-  const latestEditor = useRef(editor)
-  useLayoutEffect(() => {
-    latestEditor.current = editor
-  }, [editor])
-  const destination = useRef(mobileNativeChatDraftDestination(editor.scopeKey)).current
-  const insertDictation = useCallback(
-    (text: string) => {
-      if (!destination.active) {
-        return
-      }
-      if (destination.scope !== editor.scopeKey) {
-        setMobileNativeChatDraftText(destination.scope, (before) =>
-          appendReturnedDraftText(before, text)
-        )
-      } else {
-        latestEditor.current.change(appendReturnedDraftText(latestEditor.current.text, text))
-      }
-    },
-    [destination, editor.scopeKey]
-  )
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
@@ -97,7 +74,7 @@ export function MobileQueuedMessageComposer({
       <MobileNativeChatComposer
         inputRef={inputRef}
         draftScopeKey={editor.scopeKey}
-        insertDictation={insertDictation}
+        insertDictation={editor.insertDictation}
         agent={context?.agent}
         value={editor.text}
         onChangeText={editor.change}
@@ -131,16 +108,7 @@ export function MobileQueuedMessageComposer({
         onAttachImage={
           editor.imagesCapable
             ? () => {
-                updateMobileNativeChatDraftInputs(editor.scopeKey, (current) => ({
-                  ...current,
-                  pending: (current.pending ?? 0) + 1
-                }))
-                void images.attachImage('library').finally(() =>
-                  updateMobileNativeChatDraftInputs(destination, (current) => ({
-                    ...current,
-                    pending: Math.max(0, (current.pending ?? 0) - 1)
-                  }))
-                )
+                void images.attachImage('library')
               }
             : undefined
         }

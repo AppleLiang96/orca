@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 
+import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type * as NativeChatAttachmentUpload from './native-chat-attachment-upload'
 import { WORKSPACE_FILE_PATH_MIME } from '@/lib/workspace-file-drag'
 import {
@@ -257,4 +258,62 @@ describe('NativeChatPaneFileDropSurface', () => {
       remove.mockRestore()
     }
   })
+})
+
+it('direct drops override last focus; background keeps stable focus through disable and remount, with questions independent', () => {
+  function Composer({ scope, disabled = false }: { scope: string; disabled?: boolean }) {
+    const [value, setValue] = useState('')
+    useNativeChatPaneFileDropClaim({
+      destinationKey: scope,
+      focusScopeKey: scope,
+      disabled,
+      captureExternalDrop: () => async () => {},
+      onDragOverCapture: (event) => {
+        if (!disabled) {
+          event.preventDefault()
+        }
+      },
+      onDropCapture: (event) => {
+        if (!disabled) {
+          setValue((previous) => previous + event.dataTransfer.getData(WORKSPACE_FILE_PATH_MIME))
+        }
+      }
+    })
+    return (
+      <div data-native-chat-composer-scope={scope}>
+        <textarea aria-label={scope} value={value} readOnly disabled={disabled} />
+      </div>
+    )
+  }
+  function Pane({ disabled = false, revision = 0 }: { disabled?: boolean; revision?: number }) {
+    return (
+      <NativeChatPaneFileDropSurface className="pane">
+        <span>background</span>
+        <input aria-label="question" />
+        <Composer scope="bottom" />
+        <Composer key={revision} scope="queued-edit:row" disabled={disabled} />
+      </NativeChatPaneFileDropSurface>
+    )
+  }
+  const view = render(<Pane />)
+  const bottom = () => view.getByLabelText<HTMLTextAreaElement>('bottom')
+  const edit = () => view.getByLabelText<HTMLTextAreaElement>('queued-edit:row')
+  fireEvent.focus(edit())
+  fireDrag(bottom(), 'drop', workspaceDrag())
+  expect(bottom().value).toBe('/repo/a.ts')
+  expect(edit().value).toBe('')
+  fireDrag(view.getByText('background'), 'drop', workspaceDrag())
+  expect(edit().value).toBe('/repo/a.ts')
+  fireEvent.focus(view.getByLabelText('question'))
+  fireDrag(view.getByText('background'), 'drop', workspaceDrag())
+  expect(edit().value).toBe('/repo/a.ts/repo/a.ts')
+  view.rerender(<Pane disabled />)
+  fireDrag(edit(), 'drop', workspaceDrag())
+  expect(bottom().value).toBe('/repo/a.ts')
+  view.rerender(<Pane />)
+  fireDrag(view.getByText('background'), 'drop', workspaceDrag())
+  expect(edit().value).toBe('/repo/a.ts/repo/a.ts/repo/a.ts')
+  view.rerender(<Pane revision={1} />)
+  fireDrag(view.getByText('background'), 'drop', workspaceDrag())
+  expect(edit().value).toBe('/repo/a.ts')
 })

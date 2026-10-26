@@ -116,7 +116,7 @@ export function useMobileSessionNativeChatDictation(
     [setShowDictationSetup, showToast]
   )
 
-  const chatDictationDestination = useRef<((text: string) => void) | undefined>(undefined)
+  const chatDictationDestination = useRef<((text: string) => boolean | void) | undefined>(undefined)
   const dictationTargetReady = showNativeChat ? connState === 'connected' : canSend
   const dictation = useMobileDictation({
     client,
@@ -127,7 +127,9 @@ export function useMobileSessionNativeChatDictation(
         const insert = chatDictationDestination.current
         chatDictationDestination.current = undefined
         if (insert) {
-          insert(text)
+          if (insert(text) === false) {
+            return
+          }
         } else {
           nativeChatController.setChatComposerText((current) =>
             appendBufferedDictation(current, text)

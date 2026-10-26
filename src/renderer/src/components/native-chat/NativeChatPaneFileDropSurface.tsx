@@ -1,4 +1,12 @@
-import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import { Paperclip } from 'lucide-react'
 import { translate } from '@/i18n/i18n'
 import { toast } from 'sonner'
@@ -57,6 +65,22 @@ export function NativeChatPaneFileDropSurface({
     registrations.find((entry) => !entry.focusScopeKey?.startsWith('queued-edit:')) ??
     registrations[0] ??
     null
+  const claimForTarget = useCallback(
+    (target: EventTarget | null): NativeChatPaneDropClaim | null => {
+      const scope =
+        target instanceof Element
+          ? target.closest<HTMLElement>('[data-native-chat-composer-scope]')?.dataset
+              .nativeChatComposerScope
+          : undefined
+      return (
+        (scope
+          ? registrations.find((entry) => entry.focusScopeKey === scope)
+          : registration
+        )?.getClaim() ?? null
+      )
+    },
+    [registration, registrations]
+  )
   const [isDragActive, setIsDragActive] = useState(false)
   const ownerRef = useRef<HTMLElement | null>(null)
   const [sequence] = useState(createOsFileDropSequence)
@@ -65,8 +89,11 @@ export function NativeChatPaneFileDropSurface({
     // A paired server's chat uploads the bytes; any other owner refuses with a notice.
     acceptsBrowserFiles: true,
     sequence,
-    canAccept: () => Boolean(registration && !registration.getClaim().disabled),
-    captureDestination: () => registration?.getClaim().captureExternalDrop(),
+    canAccept: (event) => {
+      const claim = claimForTarget(event.target)
+      return Boolean(claim && !claim.disabled)
+    },
+    captureDestination: (event) => claimForTarget(event.target)?.captureExternalDrop(),
     onDrop: async (prepared, { destination }) => {
       setIsDragActive(false)
       for (const failure of prepared.failures) {
@@ -93,10 +120,10 @@ export function NativeChatPaneFileDropSurface({
   const handlers = useMemo(
     () =>
       makeNativeChatPaneFileDropHandlers({
-        getClaim: () => registration?.getClaim() ?? null,
+        getClaim: (event) => claimForTarget(event.target ?? null),
         setDragActive: setIsDragActive
       }),
-    [registration]
+    [claimForTarget]
   )
   // End hover even when the gesture finishes outside this pane.
   useLayoutEffect(() => {

@@ -1,3 +1,4 @@
+import { acquired, fakeCodex } from '../../codex/codex-structured-session-adapter-fixture'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -375,6 +376,58 @@ describe('edit leases and automatic delivery', () => {
     ).toBe(true)
     expect(await rig.sendNow(edited)).toMatchObject({ ok: true })
     expect(journal().queuedMessages.editLeases.heldIds().size).toBe(0)
+  })
+
+  it('drains changed selected skills into the recorded Codex input shape by path', async () => {
+    const working = await rig.workingSend()
+    const id = await queue('$review original')
+    const selected = { name: 'review', path: '/work/repo/.agents/skills/review/SKILL.md' }
+    expect(
+      await update(id, fingerprint(id), '$review changed', undefined, undefined, undefined, [
+        selected
+      ])
+    ).toMatchObject({ value: { status: 'updated' } })
+    await rig.settleAccepted(working, 'work-done')
+    await eventually(async () => expect(await rig.handoff(id)).toBeDefined())
+    await eventually(() =>
+      expect(
+        rig.dispatch.mock.calls.some(([input]) =>
+          input.body.skills?.some((skill) => skill.path === selected.path)
+        )
+      ).toBe(true)
+    )
+    const consumed = rig.dispatch.mock.calls.find(([input]) =>
+      input.body.skills?.some((skill) => skill.path === selected.path)
+    )?.[0]
+    expect(consumed?.body.skills).toEqual([selected])
+    if (!consumed) {
+      throw new Error('queue did not dispatch')
+    }
+    const codex = fakeCodex({
+      'skills/list': () => ({
+        data: [
+          {
+            cwd: '/work/repo',
+            skills: [{ ...selected, description: 'Review changes', scope: 'user', enabled: true }],
+            errors: []
+          }
+        ]
+      }),
+      'turn/start': () => ({ turn: { id: 'turn-1' } })
+    })
+    const adapter = await acquired(codex)
+    await adapter.dispatch({
+      sessionId: 'session-1',
+      clientMessageId: consumed.clientMessageId,
+      fence: 7,
+      body: consumed.body
+    })
+    expect(
+      codex.connections[0].calls.find((call) => call.method === 'turn/start')?.params?.input
+    ).toEqual([
+      { type: 'text', text: '$review changed' },
+      { type: 'skill', ...selected }
+    ])
   })
 
   it('Save then release lets the edited card drain with its new text', async () => {

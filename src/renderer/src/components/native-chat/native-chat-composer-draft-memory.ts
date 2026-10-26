@@ -1,3 +1,5 @@
+import type { NativeChatComposerDraft } from './native-chat-composer-draft-storage'
+import type { NativeChatComposerDraftAddition } from './native-chat-composer-draft-addition'
 // Memory owns drafts; storage keeps a copy shared by the API and persistence modules.
 
 import type {
@@ -121,4 +123,61 @@ export function clearDraftMemoryForTests(): void {
   load.editedBeforeLoad.clear()
   load.appendsBeforeLoad.clear()
   load.deletionsBeforeLoad.length = 0
+}
+
+const appendListeners = new Map<
+  string,
+  Set<(addition: NativeChatComposerDraftAddition, previous: NativeChatComposerDraft) => void>
+>()
+export function subscribeToNativeChatComposerDraftAppend(
+  scope: string,
+  listener: (addition: NativeChatComposerDraftAddition, previous: NativeChatComposerDraft) => void
+): () => void {
+  const scoped = appendListeners.get(scope) ?? new Set()
+  appendListeners.set(scope, scoped)
+  scoped.add(listener)
+  return () => {
+    scoped.delete(listener)
+    if (scoped.size === 0) {
+      appendListeners.delete(scope)
+    }
+  }
+}
+
+export function notifyDraftAppend(
+  scope: string,
+  addition: NativeChatComposerDraftAddition,
+  previous: NativeChatComposerDraft
+): void {
+  appendListeners.get(scope)?.forEach((listener) => listener(addition, previous))
+}
+
+export type NativeChatEditDraftDestination = { scopeKey: string; active: boolean }
+export const ephemeralDrafts = new Map<string, NativeChatEditDraftDestination>()
+
+export function captureNativeChatEditDraftDestination(
+  scopeKey: string
+): NativeChatEditDraftDestination | undefined {
+  return ephemeralDrafts.get(scopeKey)
+}
+
+export function redirectNativeChatEditDraft(scopeKey: string, destination: string): void {
+  const target = ephemeralDrafts.get(scopeKey)
+  if (target) {
+    target.scopeKey = destination
+  }
+}
+
+export function isNativeChatEditDraft(scopeKey: string): boolean {
+  return scopeKey.startsWith('queued-edit:')
+}
+
+export function closeNativeChatEditDraft(scopeKey: string): void {
+  const target = ephemeralDrafts.get(scopeKey)
+  if (target?.scopeKey === scopeKey) {
+    target.active = false
+  }
+  ephemeralDrafts.delete(scopeKey)
+  records.delete(scopeKey)
+  notifyScope(scopeKey)
 }

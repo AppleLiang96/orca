@@ -19,6 +19,7 @@ import {
 const EMPTY: readonly NativeChatComposerImageAttachment[] = Object.freeze([])
 const pendingCache = new Map<string, readonly NativeChatComposerImageAttachment[]>()
 // Capture ownership before tab removal can erase it.
+const chipScopes = new Map<string, string>()
 const pendingOwners = new Map<string, NativeChatComposerDraftOwner>()
 const listeners = new Map<string, Set<() => void>>()
 
@@ -39,6 +40,14 @@ export function nativeChatComposerHasUserContent(scopeKey: string): boolean {
 }
 
 function writePending(scopeKey: string, next: readonly NativeChatComposerImageAttachment[]): void {
+  for (const chip of pendingCache.get(scopeKey) ?? []) {
+    if (chipScopes.get(chip.id) === scopeKey) {
+      chipScopes.delete(chip.id)
+    }
+  }
+  for (const chip of next) {
+    chipScopes.set(chip.id, scopeKey)
+  }
   if (next.length === 0) {
     pendingCache.delete(scopeKey)
     pendingOwners.delete(scopeKey)
@@ -143,15 +152,7 @@ export function moveNativeChatPendingAttachments(from: string, to: string): void
 }
 
 function pendingDestination(scope: string, id: string): string {
-  if (nativeChatPendingAttachmentSnapshot(scope).some((chip) => chip.id === id)) {
-    return scope
-  }
-  for (const [key, chips] of pendingCache) {
-    if (chips.some((chip) => chip.id === id)) {
-      return key
-    }
-  }
-  return scope
+  return chipScopes.get(id) ?? scope
 }
 
 /** Persist completed images in attachment order; return false if already removed. */
@@ -250,6 +251,7 @@ export function dropNativeChatPendingAttachmentsOwnedBy(owner: NativeChatCompose
 }
 
 export function clearNativeChatPendingAttachmentsForTests(): void {
+  chipScopes.clear()
   pendingCache.clear()
   pendingOwners.clear()
 }

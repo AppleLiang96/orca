@@ -59,6 +59,7 @@ export function useMobileNativeChatFileAttachments(args: {
     }))
     try {
       await uploadPickedNativeChatFiles({
+        canContinue: () => destination.active,
         picked: picker.pickFiles(),
         upload: (file) =>
           uploadMobileAgentSessionAttachment(client, {

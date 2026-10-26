@@ -27,7 +27,11 @@ import {
   nativeChatImageRow,
   nativeChatPendingAttachmentSnapshot
 } from './native-chat-pending-attachment-cache'
-import { nativeChatPastedTextOperations } from './native-chat-pasted-text-reference'
+import {
+  nativeChatPastedTextOperations,
+  NATIVE_CHAT_PASTED_TEXT_TOKEN,
+  nativeChatPastedTextId
+} from './native-chat-pasted-text-reference'
 import {
   nativeChatPastedTextAdmission,
   resolveNativeChatPastedText
@@ -51,7 +55,10 @@ function seedSkills(
       const pieces: JSONContent[] = []
       const text = child.text
       let start = 0
-      const pattern = /\$[\w:-]+/gu
+      const names = [...new Set(body.skills?.map(({ name }) => name) ?? [])]
+        .sort((a, b) => b.length - a.length)
+        .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const pattern = new RegExp(`\\$(?:${names.join('|')})(?![\\w:-])`, 'gu')
       for (const match of text.matchAll(pattern)) {
         const matching = body.skills?.filter(({ name }) => `$${name}` === match[0]) ?? []
         const occurrence = occurrences.get(match[0]) ?? 0
@@ -151,9 +158,6 @@ export function nativeChatQueuedEditHeld(
 
 /** Move only draft-owned additions; card-owned images remain with the accepted message. */
 export function handBackNativeChatQueuedEdit(edit: NativeChatQueuedEditDraft): boolean {
-  if (!nativeChatQueuedEditDirty(edit)) {
-    return false
-  }
   const draft = readNativeChatComposerDraft(edit.scopeKey)
   let text = draft.text
   let document = draft.document
@@ -187,8 +191,10 @@ export function handBackNativeChatQueuedEdit(edit: NativeChatQueuedEditDraft): b
   })
   redirectNativeChatEditDraft(edit.scopeKey, edit.destination)
   moveNativeChatPendingAttachments(edit.scopeKey, edit.destination)
-  for (const operation of nativeChatPastedTextOperations.values()) {
-    if (operation.scopeKey === edit.scopeKey) {
+  for (const token of draft.text.split(NATIVE_CHAT_PASTED_TEXT_TOKEN)) {
+    const id = nativeChatPastedTextId(token)
+    const operation = id ? nativeChatPastedTextOperations.get(id) : undefined
+    if (operation?.scopeKey === edit.scopeKey) {
       operation.scopeKey = edit.destination
     }
   }

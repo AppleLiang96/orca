@@ -1,17 +1,16 @@
+import { createUuidV4 } from '../../../../../src/shared/uuid-v4'
 import {
+  readMobileNativeChatDraftInputs,
   useMobileNativeChatDraftInputs,
   updateMobileNativeChatDraftInputs,
   type MobileNativeChatDraftDestination
 } from './mobile-native-chat-draft-inputs'
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo } from 'react'
 import { buildAgentTuiClearInputForText } from '../../../../../src/shared/agent-tui-input-clear'
 import type { RpcClient } from '../../../transport/rpc-client'
 import type { ConnectionState } from '../../../transport/types'
 import type { MobileImageSource } from '../../../platform/media-picker-contract'
-import {
-  appendPendingNativeChatImages,
-  type PendingNativeChatImage
-} from './mobile-native-chat-image-attachment'
+import type { PendingNativeChatImage } from './mobile-native-chat-image-attachment'
 import {
   MOBILE_NATIVE_CHAT_IMAGE_SETTLE_MS,
   pasteMobileNativeChatImagePaths
@@ -119,8 +118,8 @@ export function useMobileNativeChatImageAttachments({
   onError,
   sleep = defaultSleep
 }: Args): MobileNativeChatImageAttachments {
-  const idCounter = useRef(0)
-  const images = useMobileNativeChatDraftInputs(scopeKey).images
+  const inputs = useMobileNativeChatDraftInputs(scopeKey)
+  const images = inputs.images
   const attachments = useMemo(() => [...images], [images])
 
   const addUploadedImages = useCallback(
@@ -130,7 +129,10 @@ export function useMobileNativeChatImageAttachments({
     ) => {
       updateMobileNativeChatDraftInputs(scope, (current) => ({
         ...current,
-        images: appendPendingNativeChatImages(current.images, uploadedImages, idCounter)
+        images: [
+          ...current.images,
+          ...uploadedImages.map((image) => ({ ...image, id: createUuidV4() }))
+        ]
       }))
     },
     []
@@ -179,6 +181,9 @@ export function useMobileNativeChatImageAttachments({
       const sentAt = Date.now()
       try {
         const scope = scopeKey
+        if ((readMobileNativeChatDraftInputs(scope).pending ?? 0) > 0) {
+          return false
+        }
         const pendingImages = attachments
         // Hold Send until all selected files finish uploading.
         const storedFiles = structuredNativeChat
@@ -323,5 +328,11 @@ export function useMobileNativeChatImageAttachments({
     ]
   )
 
-  return { attachments, isAttaching, attachImage, removeAttachment, sendNativeChat }
+  return {
+    attachments,
+    isAttaching: isAttaching || (inputs.pending ?? 0) > 0,
+    attachImage,
+    removeAttachment,
+    sendNativeChat
+  }
 }

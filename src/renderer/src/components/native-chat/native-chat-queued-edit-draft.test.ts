@@ -83,6 +83,23 @@ describe('queued edit draft ownership', () => {
     discardNativeChatQueuedEdit(edit)
   })
 
+  it.each(['review.v2', '検証.v2'])(
+    'retains picker-valid %s identities without a catalog',
+    (name) => {
+      const skills = [
+        { name, path: '/remote/first/SKILL.md' },
+        { name, path: '/remote/second/SKILL.md' }
+      ]
+      const edit = createNativeChatQueuedEditDraft(
+        { ...body, blocks: [{ type: 'text', text: `$${name} $${name}` }], skills },
+        'bottom'
+      )
+      expect(nativeChatQueuedEditDirty(edit)).toBe(false)
+      expect(nativeChatQueuedEditInput(edit, true, true).skills).toEqual(skills)
+      discardNativeChatQueuedEdit(edit)
+    }
+  )
+
   it('normalizes repeated skill refs when deciding whether to hand a draft back', () => {
     const repeated = { ...body, skills: [skill, skill] }
     const edit = createNativeChatQueuedEditDraft(repeated, 'bottom')

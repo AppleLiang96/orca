@@ -1,5 +1,5 @@
 import { setMobileNativeChatDraftText } from './mobile-native-chat-draft-store'
-import { appendReturnedDraftText } from '../../../../../src/shared/returned-draft-text'
+import { appendBufferedDictation } from '../../../terminal/terminal-live-dictation-routing'
 import {
   focusMobileNativeChatTextDestination,
   pruneMobileNativeChatDraftSkills,
@@ -43,7 +43,7 @@ export type MobileNativeChatStructuredComposer = {
 }
 
 type Props = {
-  insertDictation?: (text: string) => void
+  insertDictation?: (text: string) => boolean | void
   draftScopeKey?: string | null
   editSession?: { cancel: () => void; refuseCommand: (text: string) => boolean; locked: boolean }
   onPickSkill?: (skill: { name: string; path: string }) => void
@@ -119,7 +119,7 @@ export function MobileNativeChatComposer({
       insertDictation ??
         ((text) =>
           setMobileNativeChatDraftText(draftScopeKey, (before) =>
-            appendReturnedDraftText(before, text)
+            appendBufferedDictation(before, text)
           ))
     )
   }, [draftScopeKey, insertDictation])
