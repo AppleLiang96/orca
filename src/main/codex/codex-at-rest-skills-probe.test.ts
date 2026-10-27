@@ -134,11 +134,16 @@ describe('a resting Codex chat lists the skills Codex would load', () => {
     }
     expect(peak).toBe(2)
     // Repeated reads inside the TTL start nothing.
-    for (let round = 0; round < 10; round += 1) {
-      readAll()
+    vi.useFakeTimers()
+    try {
+      for (let round = 0; round < 10; round += 1) {
+        readAll()
+      }
+      await vi.advanceTimersByTimeAsync(20)
+      expect(spawned).toHaveLength(3)
+    } finally {
+      vi.useRealTimers()
     }
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(spawned).toHaveLength(3)
   })
 
   it('reloads a live probe after an explicit refresh instead of handing back its cached list', async () => {
