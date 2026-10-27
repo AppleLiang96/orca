@@ -31,12 +31,14 @@ import { HostPendingCreationRow } from './host-pending-creation-row'
 import { useSlowPendingKeys } from './use-slow-pending-keys'
 import { projectGroupHeaderIndent } from '../worktree/project-group-indent'
 import type { HostScreenController } from './use-host-screen-controller'
+import { AgentPaneTitlesContext, useAgentPaneTitles } from '../worktree/use-agent-pane-titles'
 
 export function HostWorkspaceList({ controller }: { controller: HostScreenController }) {
   const {
     actions,
     activeWorktreeScroll,
     catalog,
+    client,
     connState,
     contentMaxWidth,
     displayWorktrees,
@@ -58,6 +60,10 @@ export function HostWorkspaceList({ controller }: { controller: HostScreenContro
     state
   } = controller
   const { rawSections, sections, repoById } = sectionsResult
+  const agentPaneTitles = useAgentPaneTitles(
+    connState === 'connected' ? client : null,
+    displayWorktrees
+  )
   const { pending } = settings.pendingViewChanges
   // A collapse the desktop has not answered within SLOW_PENDING_MS spins on its header.
   const pendingCollapseKeys = useSlowPendingKeys(
@@ -74,7 +80,7 @@ export function HostWorkspaceList({ controller }: { controller: HostScreenContro
   )
 
   return (
-    <>
+    <AgentPaneTitlesContext.Provider value={agentPaneTitles}>
       {(connState === 'auth-failed' || relayRecovery.pairingRejected) && (
         <AuthFailedBanner
           canRetry={!!hostId && forceReconnectHost !== null}
@@ -271,7 +277,7 @@ export function HostWorkspaceList({ controller }: { controller: HostScreenContro
           disabled={connState !== 'connected'}
         />
       )}
-    </>
+    </AgentPaneTitlesContext.Provider>
   )
 }
 

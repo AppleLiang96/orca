@@ -129,6 +129,17 @@ describe('agentDisplayLabel', () => {
     expect(agentDotState(stopping, 0)).toBe('working')
   })
 
+  it('leads with the conversation name, but Stopping still wins', () => {
+    expect(agentDisplayLabel(row({ lastAssistantMessage: 'hello there' }), 0, '1007 | 研究')).toBe(
+      '1007 | 研究'
+    )
+    expect(agentDisplayLabel(row({ lastAssistantMessage: 'hello there' }), 0, null)).toBe(
+      'hello there'
+    )
+    const stopping = row({ mainAgent: { state: 'working', stopping: true, stateStartedAt: 0 } })
+    expect(agentDisplayLabel(stopping, 0, '1007 | 研究')).toBe('Stopping…')
+  })
+
   it('falls back to the decayed state label when stale', () => {
     expect(agentDisplayLabel(row({ state: 'working', prompt: '', updatedAt: 0 }), 1_800_001)).toBe(
       'Idle'

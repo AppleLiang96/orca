@@ -14,6 +14,8 @@ import { AgentStateDot } from './AgentStateDot'
 import { MobileAgentIcon } from './MobileAgentIcon'
 import type { AgentChildRowModel } from '../../../src/shared/agent-child-row-model'
 import { mobileAgentChildRowText } from '../session/mobile-agent-child-row-text'
+import { agentRowConversationName } from '../worktree/agent-pane-conversation-names'
+import { useAgentPaneTitleSource } from '../worktree/use-agent-pane-titles'
 
 const INDENT_PER_DEPTH = 14
 
@@ -41,11 +43,13 @@ function WorktreeAgentRowComponent({
   const dotState = childRow?.displayState ?? agentDotState(agent, now)
   // Visuals render only in transcript; row keeps surrounding prose and treats visual-only reply as empty.
   const reply = agent.lastAssistantMessage
+  const titleSource = useAgentPaneTitleSource(agent.paneKey)
   const label = agentDisplayLabel(
     reply
       ? { ...agent, lastAssistantMessage: withoutNativeChatVisualDirectiveLines(reply) }
       : agent,
-    now
+    now,
+    agentRowConversationName(agent, titleSource)
   )
   const childText = childRow ? mobileAgentChildRowText(childRow, now) : null
   const timeAt = childRow ? childRow.firstObservedAt : agentRowTimeAt(agent)
