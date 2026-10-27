@@ -54,6 +54,10 @@ import {
 } from '../worktree-removal-records'
 import { interruptedLocalWorktreeRemovalJob } from './runtime-interrupted-local-worktree-removal'
 
+vi.mock('node:fs/promises', async (importOriginal) => {
+  return { ...(await importOriginal<typeof diskFs>()) }
+})
+
 vi.mock('../project-runtime-git-options', () => ({
   getLocalProjectWorktreeGitOptions: vi.fn(() => ({}))
 }))
