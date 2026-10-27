@@ -1,8 +1,6 @@
+import { insertNativeChatComposerDraftText } from './native-chat-composer-draft-insertion'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
-import {
-  captureNativeChatEditDraftDestination,
-  appendToNativeChatComposerDraft
-} from './native-chat-composer-draft-store'
+import { captureNativeChatEditDraftDestination } from './native-chat-composer-draft-store'
 import { nativeChatPasteUnavailableNotice } from '@/lib/native-chat-paste-request'
 
 function captureNativeChatPasteDestination(
@@ -18,11 +16,15 @@ function captureNativeChatPasteDestination(
     if (!text || !canComplete()) {
       return
     }
-    if (lifetime.active && insertTypedText(text)) {
+    if (
+      (!destination || destination.scopeKey === scope) &&
+      lifetime.active &&
+      insertTypedText(text)
+    ) {
       return
     }
     if (destination) {
-      appendToNativeChatComposerDraft(destination.scopeKey, { text })
+      insertNativeChatComposerDraftText(destination.scopeKey, text, { paste: true })
     } else {
       setNotice(nativeChatPasteUnavailableNotice())
     }

@@ -89,8 +89,10 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
   )
 
   const reacquire = useCallback(
-    (edit: Edit) => {
+    (edit: Edit, observe: (edit: Edit) => void) => {
       edit.lease?.end()
+      edit.leaseLoss = undefined
+      const expected = edit.baseFingerprint
       const lease = startQueuedEditLease({
         target,
         sessionId: edit.sessionId,
@@ -102,7 +104,7 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
       void lease.acquired
         .catch(() => null)
         .then((answer) => {
-          if (edit.closed || edit.lease !== lease || active.current !== edit) {
+          if (edit.closed || edit.lease !== lease) {
             return
           }
           if (
@@ -110,20 +112,25 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
             answer?.status === 'changed' ||
             answer?.status === 'not-editable'
           ) {
-            gone(edit)
+            edit.leaseLoss = { lease, expected, status: answer.status }
+            observe(edit)
           }
         })
     },
-    [gone, target]
+    [target]
   )
 
   const settle = useCallback(
-    (
+    function settleResult(
       edit: Edit,
       attempt = edit.attempt,
       result?: Awaited<ReturnType<typeof write<AgentSessionQueuedMessageUpdateResult>>>
-    ) => {
-      if (edit.closed || edit.attempt !== attempt) {
+    ) {
+      if (
+        edit.closed ||
+        edit.attempt !== attempt ||
+        (!result && nativeChatQueuedEditSaving(edit))
+      ) {
         return
       }
       const outcome = settleNativeChatQueuedEdit(edit, attempt, result)
@@ -131,7 +138,7 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
         handBackNativeChatQueuedEdit(edit)
         close(edit)
       } else if (outcome === 'rebase') {
-        reacquire(edit)
+        reacquire(edit, settleResult)
         render(edit)
       } else if (outcome === 'gone') {
         gone(edit)

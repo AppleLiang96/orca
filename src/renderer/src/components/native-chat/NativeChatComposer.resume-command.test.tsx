@@ -87,6 +87,10 @@ vi.mock('./use-native-chat-composer-keydown', () => ({
   }
 }))
 
+import {
+  createNativeChatQueuedEditDraft,
+  discardNativeChatQueuedEdit
+} from './native-chat-queued-edit-draft'
 import { NativeChatComposer } from './NativeChatComposer'
 
 const RESUME: CommandItem = {
@@ -121,6 +125,7 @@ function renderStructuredChat(editSession?: QueuedMessageInlineEditor) {
     <NativeChatComposer
       terminalTabId="tab-1"
       editSession={editSession}
+      draftScopeKey={editSession?.draftScopeKey}
       paneKey="tab-1:structured"
       targetPtyId={null}
       agent="claude"
@@ -198,6 +203,46 @@ describe('/resume in the native chat composer', () => {
     rerender()
     act(() => mocks.keyDownArgs?.dispatchPickerCommand(RESUME))
     expect(mocks.openHistory).toHaveBeenCalledOnce()
+  })
+
+  it('reopened native slash identity permits only edit Save and cannot authorize a stale command row', () => {
+    const draft = createNativeChatQueuedEditDraft(
+      {
+        kind: 'message',
+        role: 'user',
+        blocks: [{ type: 'text', text: '/model\nintent' }],
+        skills: [{ name: 'model', path: '/selected/SKILL.md' }]
+      },
+      'bottom'
+    )
+    mocks.draft = '/model\nintent'
+    const editor: QueuedMessageInlineEditor = {
+      messageId: 'seeded',
+      draftScopeKey: draft.scopeKey,
+      text: mocks.draft,
+      change: vi.fn(),
+      acquiring: false,
+      saving: false,
+      canSave: true,
+      imagesCapable: true,
+      save: vi.fn(),
+      cancel: vi.fn()
+    }
+    const { transport } = renderStructuredChat(editor)
+    act(() => mocks.fieldProps?.onSend?.())
+    expect(editor.save).toHaveBeenCalledOnce()
+    act(() =>
+      mocks.fieldProps?.onChoosePickerItem?.({
+        ...RESUME,
+        id: 'command:model',
+        name: 'model',
+        token: '/model'
+      })
+    )
+    expect(editor.save).toHaveBeenCalledOnce()
+    expect(transport.dispatchCommand).not.toHaveBeenCalled()
+    expect(transport.send).not.toHaveBeenCalled()
+    discardNativeChatQueuedEdit(draft)
   })
 
   it.each(['/compact', '/goal ship it', '/resume old chat'])(

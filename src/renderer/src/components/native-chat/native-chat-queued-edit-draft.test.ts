@@ -1,3 +1,4 @@
+import { queuedMessageWithEdit } from '../../../../shared/queued-message-edit'
 import { promptTextContent } from './native-chat-prompt-document-text'
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -173,3 +174,29 @@ describe('queued edit draft ownership', () => {
     expect(readNativeChatComposerDraft('bottom').text).toBe('')
   })
 })
+
+it.each(['/', '$'] as const)(
+  'reopens supplied %s identities through rich nodes, serializer and the next host body',
+  (sigil) => {
+    const skills = [
+      { name: 'model', path: '/A/SKILL.md' },
+      { name: 'model', path: '/B/SKILL.md' },
+      { name: 'skill:review.v2', path: '/pi/SKILL.md' },
+      { name: '审查', path: '/unicode/SKILL.md' }
+    ]
+    const text = `${sigil}model ${sigil}model\n${sigil}skill:review.v2 ${sigil}审查`
+    const queued: AgentJournalMessageItem = {
+      kind: 'message',
+      role: 'user',
+      blocks: [{ type: 'text', text }],
+      skills
+    }
+    const edit = createNativeChatQueuedEditDraft(queued, 'bottom')
+    expect(promptSkillRefs(readNativeChatComposerDraft(edit.scopeKey).document)).toEqual(skills)
+    const fields = nativeChatQueuedEditInput(edit, true, true)
+    expect(fields.skills).toEqual(skills)
+    const result = queuedMessageWithEdit(queued, fields)
+    expect(result).toEqual({ ok: true, body: queued })
+    discardNativeChatQueuedEdit(edit)
+  }
+)

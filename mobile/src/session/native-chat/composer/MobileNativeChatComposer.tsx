@@ -1,3 +1,4 @@
+import { getNativeChatAgentProfile } from '../../../../../src/shared/native-chat-agent-profiles'
 import { setMobileNativeChatDraftText } from './mobile-native-chat-draft-store'
 import { appendBufferedDictation } from '../../../terminal/terminal-live-dictation-routing'
 import {
@@ -139,7 +140,11 @@ export function MobileNativeChatComposer({
     value,
     onChangeText: (text) => {
       if (draftScopeKey) {
-        pruneMobileNativeChatDraftSkills(draftScopeKey, text)
+        pruneMobileNativeChatDraftSkills(
+          draftScopeKey,
+          text,
+          getNativeChatAgentProfile(agent)?.skillPrefix ?? '/'
+        )
       }
       onChangeText(text)
     },

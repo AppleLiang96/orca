@@ -126,9 +126,13 @@ export function resetMobileNativeChatDraftInputsForTests(): void {
   focusedScope = null
 }
 
-export function pruneMobileNativeChatDraftSkills(scope: string, text: string): void {
+export function pruneMobileNativeChatDraftSkills(
+  scope: string,
+  text: string,
+  sigil: '$' | '/' = '$'
+): void {
   const current = readMobileNativeChatDraftInputs(scope)
-  const skills = pickedSkillsInText(text, current.skills)
+  const skills = pickedSkillsInText(text, current.skills, [sigil])
   if (skills.length !== current.skills.length) {
     updateMobileNativeChatDraftInputs(scope, (current) => ({ ...current, skills }))
   }

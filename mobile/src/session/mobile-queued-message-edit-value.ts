@@ -11,7 +11,7 @@ export function mobileQueuedEditValueKey(
 ): string {
   return JSON.stringify([
     text,
-    pickedSkillsInText(text, inputs.skills),
+    pickedSkillsInText(text, inputs.skills, ['$', '/']),
     inputs.images,
     inputs.files,
     inputs.pending ?? 0

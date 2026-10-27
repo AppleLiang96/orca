@@ -1,8 +1,9 @@
+import { readNativeChatComposerDraft } from './native-chat-composer-draft-store'
 import { useNativeChatPickerCommandDispatch } from './use-native-chat-picker-command-dispatch'
-import { useCallback, useLayoutEffect, type RefObject } from 'react'
+import { useCallback, useLayoutEffect, useMemo, type RefObject } from 'react'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { NativeChatPickerItem } from '../../../../shared/native-chat-picker-items'
-import { queuedMessageEditAcceptsText } from '../../../../shared/queued-message-edit-command'
+import { prepareQueuedMessageEditText } from '../../../../shared/queued-message-edit-command'
 import { translate } from '@/i18n/i18n'
 import { registerDictationComposerTarget } from '../dictation/dictation-insertion-target'
 import { captureNativeChatEditDraftDestination } from './native-chat-composer-draft-store'
@@ -49,6 +50,10 @@ export function useNativeChatComposerEditSession({
 }) {
   const sessionCommands = structuredTransport?.sessionCommands
   const hostSetsGoals = structuredTransport?.threadGoal !== undefined
+  const acceptsText = useMemo(
+    () => prepareQueuedMessageEditText(agent, sessionCommands, hostSetsGoals),
+    [agent, sessionCommands, hostSetsGoals]
+  )
   const isEditing = editSession !== undefined
   useLayoutEffect(() => {
     if (root.current && handle.current) {
@@ -73,10 +78,22 @@ export function useNativeChatComposerEditSession({
 
   const refuseEditCommand = useCallback(
     (text: string, allowPickedSkill = true): boolean => {
+      const first =
+        editSession && allowPickedSkill
+          ? readNativeChatComposerDraft(draftScopeKey).document?.content?.[0]?.content?.[0]
+          : undefined
+      const seededSkill =
+        first?.type === 'nativeChatSkill' &&
+        typeof first.attrs?.path === 'string' &&
+        first.attrs.path.length > 0 &&
+        typeof first.attrs.token === 'string' &&
+        text.startsWith(first.attrs.token) &&
+        (text.length === first.attrs.token.length ||
+          /\s/u.test(text.charAt(first.attrs.token.length)))
       if (
         !editSession ||
-        (allowPickedSkill && isPickedSkill(text)) ||
-        queuedMessageEditAcceptsText(text, agent, sessionCommands, hostSetsGoals)
+        (allowPickedSkill && (isPickedSkill(text) || seededSkill)) ||
+        acceptsText(text)
       ) {
         return false
       }
@@ -88,7 +105,7 @@ export function useNativeChatComposerEditSession({
       )
       return true
     },
-    [agent, editSession, isPickedSkill, setNotice, sessionCommands, hostSetsGoals]
+    [editSession, isPickedSkill, setNotice, acceptsText, draftScopeKey]
   )
   const send = useCallback(() => {
     if (!editSession) {

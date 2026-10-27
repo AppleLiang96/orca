@@ -1,3 +1,4 @@
+import { prepareQueuedMessageEditText } from '../../../../../src/shared/queued-message-edit-command'
 import { useEffect, useMemo, useState } from 'react'
 import {
   applyAutocomplete,
@@ -41,9 +42,14 @@ export function useMobileNativeChatComposerMenu(input: {
   const [pendingSelection, setPendingSelection] = useState<Selection | null>(null)
   const [menuKind, setMenuKind] = useState<MenuKind | null>(null)
 
+  const reported = structuredCatalog?.reported
+  const acceptsText = useMemo(
+    () => prepareQueuedMessageEditText(agent ?? 'codex', reported),
+    [agent, reported]
+  )
   const skillTokens = useMemo(
-    () => mobileComposerSkillTokens({ agent, structured: structuredCatalog, editing }),
-    [agent, structuredCatalog, editing]
+    () => mobileComposerSkillTokens({ agent, structured: structuredCatalog, editing, acceptsText }),
+    [agent, structuredCatalog, editing, acceptsText]
   )
   const skillToken = leadingSkillToken(value, skillTokens)
   const setDraft = (next: string): void => {
@@ -79,10 +85,11 @@ export function useMobileNativeChatComposerMenu(input: {
       agent,
       structured: structuredCatalog,
       editing,
+      acceptsText,
       query: menuQuery
     })
     return narrowedMenuItems(items, menuKind)
-  }, [agent, filePaths, menuKind, menuMode, menuQuery, structuredCatalog, editing])
+  }, [agent, filePaths, menuKind, menuMode, menuQuery, structuredCatalog, editing, acceptsText])
 
   const { onNeedFiles, onSlashMenuOpen } = input
   useEffect(() => {

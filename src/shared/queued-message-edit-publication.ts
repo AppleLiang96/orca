@@ -12,6 +12,9 @@ export function queuedEditPublicationKey(
   sessionId: string,
   messageId: string | undefined
 ): string {
+  if (messageId === undefined) {
+    return '[]'
+  }
   const listed = view.messages?.find((entry) => entry.messageId === messageId)
   return JSON.stringify([
     view.messages === null,

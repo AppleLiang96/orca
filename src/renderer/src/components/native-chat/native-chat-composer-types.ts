@@ -147,6 +147,7 @@ export type NativeChatComposerHandle = {
   isComposing?: () => boolean
   focus: () => boolean
   insertTypedText: (text: string) => boolean
+  insertPastedText?: (text: string) => boolean
   /** Whether the input is there and enabled, so text given to it lands. */
   acceptsText: () => boolean
   /** Append deduplicated text after a blank line and place the caret at its end. */

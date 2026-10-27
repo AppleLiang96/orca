@@ -11,6 +11,12 @@ export type QueuedEditLease = {
   end: () => void
 }
 
+export type QueuedEditLeaseLoss = {
+  lease: QueuedEditLease
+  expected: string
+  status: 'changed' | 'gone' | 'not-editable'
+}
+
 export function startQueuedEditLease(args: {
   sessionId: string
   messageId: string

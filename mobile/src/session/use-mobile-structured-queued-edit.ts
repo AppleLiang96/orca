@@ -67,46 +67,46 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
     [render]
   )
 
-  const acquire = useCallback(
-    (edit: Edit, initial = false) => {
-      if (!initial) {
-        edit.lease.end()
-      }
-      const lease = initial
-        ? edit.lease
-        : startMobileQueuedEditLease({
-            getClient: () =>
-              latest.current.sessionKey === edit.scope ? latest.current.client : edit.client,
-            sessionId: edit.sessionId,
-            messageId: edit.messageId,
-            expectedBodyFingerprint: edit.fingerprint
-          })
-      edit.lease = lease
-      void lease.acquired.then(
-        (answer) => {
-          if (edit.closed || edit.lease !== lease || active.current !== edit) {
-            return
-          }
-          if (
-            answer.status === 'gone' ||
-            answer.status === 'changed' ||
-            answer.status === 'not-editable'
-          ) {
-            close(edit, true)
-          }
-        },
-        () => undefined
-      )
-    },
-    [close]
-  )
+  const acquire = useCallback((edit: Edit, observe: (edit: Edit) => unknown, initial = false) => {
+    if (!initial) {
+      edit.lease.end()
+    }
+    const lease = initial
+      ? edit.lease
+      : startMobileQueuedEditLease({
+          getClient: () =>
+            latest.current.sessionKey === edit.scope ? latest.current.client : edit.client,
+          sessionId: edit.sessionId,
+          messageId: edit.messageId,
+          expectedBodyFingerprint: edit.fingerprint
+        })
+    edit.lease = lease
+    edit.leaseLoss = undefined
+    const expected = edit.fingerprint
+    void lease.acquired.then(
+      (answer) => {
+        if (edit.closed || edit.lease !== lease) {
+          return
+        }
+        if (
+          answer.status === 'gone' ||
+          answer.status === 'changed' ||
+          answer.status === 'not-editable'
+        ) {
+          edit.leaseLoss = { lease, expected, status: answer.status }
+          observe(edit)
+        }
+      },
+      () => undefined
+    )
+  }, [])
   const settle = useCallback(
-    (
+    function settleResult(
       edit: Edit,
       attempt = edit.attempt,
       result?: Awaited<ReturnType<typeof mutate<AgentSessionQueuedMessageUpdateResult>>>
-    ) => {
-      if (edit.closed || edit.attempt !== attempt) {
+    ) {
+      if (edit.closed || edit.attempt !== attempt || (!result && mobileQueuedEditSaving(edit))) {
         return false
       }
       const outcome = settleMobileQueuedEdit(edit, attempt, result)
@@ -118,7 +118,7 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
         return true
       }
       if (outcome === 'rebase') {
-        acquire(edit)
+        acquire(edit, settleResult)
       } else if (outcome === 'gone' || outcome === 'changed' || edit.pendingClose) {
         // A restored seed is still intent if an earlier write remains uncertain or a rival changed it.
         edit.uncertain ||= outcome === 'changed'
@@ -166,10 +166,10 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
         return false
       }
       render(edit)
-      acquire(edit, true)
+      acquire(edit, settle, true)
       return true
     },
-    [client, acquire, render, sessionId, sessionKey]
+    [client, acquire, render, sessionId, sessionKey, settle]
   )
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -210,7 +210,7 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
       'agentSession.queuedMessageUpdate',
       'agentSession.queuedMessageUpdate',
       { messageId: edit.messageId, expectedBodyFingerprint: attempt.expected, ...fields },
-      () => !edit.closed && !edit.pendingClose
+      () => !edit.closed && !edit.pendingClose && edit.leaseLoss?.lease !== edit.lease
     )
     return settle(edit, attempt, result)
   }, [

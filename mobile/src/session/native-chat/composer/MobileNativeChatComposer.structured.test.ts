@@ -211,102 +211,108 @@ describe('MobileNativeChatComposer on a structured chat', () => {
     }
   )
 
-  it('carries an ordinary menu pick through the real Send RPC, clears on acceptance and forgets deleted identities', async () => {
-    const scope = 'normal-menu-rpc'
-    resetMobileNativeChatDraftInputsForTests()
-    setMobileNativeChatDraftText(scope, '/re')
-    let publish: ((data: unknown) => void) | undefined
-    const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method) =>
-      method === 'agentSession.send'
-        ? mutationOk(structuredSendResultFixture('accepted'))
-        : ok({ models: [], current: {} })
-    )
-    const client: RpcClient = {
-      sendRequest,
-      subscribe: (_m, _p, listener) => {
-        publish = listener
-        return () => {}
-      },
-      updateTerminalSubscriptionViewport: () => {},
-      getState: () => 'connected',
-      getReconnectAttempt: () => 0,
-      getLastConnectedAt: () => null,
-      onStateChange: () => () => {},
-      notifyForeground: () => {},
-      close: () => {}
-    }
-    function Conversation() {
-      const value = useMobileNativeChatDraft(scope)
-      const session = useMobileStructuredAgentSession({
-        client,
-        sessionId: SESSION_ID,
-        sourceIdentity: 'host',
-        enabled: true,
-        connected: true,
-        agent: 'codex',
-        hostSupport: CAPABLE,
-        composerScopeKey: scope,
-        onSendError: vi.fn()
-      })
-      return createElement(MobileNativeChatComposer, {
-        value,
-        agent: 'codex',
-        draftScopeKey: scope,
-        onChangeText: (text) => setMobileNativeChatDraftText(scope, text),
-        onPickSkill: (skill) =>
-          updateMobileNativeChatDraftInputs(scope, (input) => ({
-            ...input,
-            skills: [...input.skills, skill]
-          })),
-        onSend: async (text) => {
-          const generation = readMobileNativeChatDraftEditGeneration(scope)
-          const accepted = (await session.sendWithOutcome(text)) === 'accepted'
-          if (accepted) {
-            clearMobileNativeChatDraftForSend(scope, generation, text)
-          }
-          return accepted
+  it.each([
+    ['codex', '$review.v2'],
+    ['claude', '/review.v2']
+  ] as const)(
+    '%s carries an ordinary menu pick through the real Send RPC, clears on acceptance and forgets deleted identities',
+    async (agent, token) => {
+      const scope = 'normal-menu-rpc'
+      resetMobileNativeChatDraftInputsForTests()
+      setMobileNativeChatDraftText(scope, '/re')
+      let publish: ((data: unknown) => void) | undefined
+      const sendRequest = vi.fn<RpcClient['sendRequest']>(async (method) =>
+        method === 'agentSession.send'
+          ? mutationOk(structuredSendResultFixture('accepted'))
+          : ok({ models: [], current: {} })
+      )
+      const client: RpcClient = {
+        sendRequest,
+        subscribe: (_m, _p, listener) => {
+          publish = listener
+          return () => {}
         },
-        sendSurfaceId: scope,
-        getSendCompletionGeneration: () => 0,
-        getComposerEditGeneration: () => readMobileNativeChatDraftEditGeneration(scope),
-        structured: structured({
-          catalog: {
-            reported: [{ name: 'review.v2', kind: 'skill', path: '/remote/review/SKILL.md' }],
-            conversationCommands: []
-          }
-        })
-      })
-    }
-    await act(async () => {
-      renderer = create(createElement(Conversation))
-    })
-    act(() => publish?.(snapshotEvent()))
-    act(() => field().props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
-    await act(async () => labelled('$review.v2')[0]!.props.onPress())
-    expect(field().props.value).toBe('$review.v2 ')
-    await act(async () => labelled('Send message')[0]!.props.onPress())
-    const request = sendRequest.mock.calls.find(([method]) => method === 'agentSession.send')?.[1]
-    expect(request).toMatchObject({
-      body: {
-        blocks: [{ type: 'text', text: '$review.v2' }],
-        skills: [{ name: 'review.v2', path: '/remote/review/SKILL.md' }]
+        updateTerminalSubscriptionViewport: () => {},
+        getState: () => 'connected',
+        getReconnectAttempt: () => 0,
+        getLastConnectedAt: () => null,
+        onStateChange: () => () => {},
+        notifyForeground: () => {},
+        close: () => {}
       }
-    })
-    expect(field().props.value).toBe('')
-    expect(readMobileNativeChatDraftInputs(scope).skills).toEqual([])
-    act(() => field().props.onChangeText('$review.v2 '))
-    await act(async () => labelled('Send message')[0]!.props.onPress())
-    expect(
-      sendRequest.mock.calls.findLast(([method]) => method === 'agentSession.send')?.[1]
-    ).not.toHaveProperty('body.skills')
-    // Pick again, delete, then retype: text alone cannot resurrect the old remote identity.
-    act(() => field().props.onChangeText('/re'))
-    act(() => field().props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
-    await act(async () => labelled('$review.v2')[0]!.props.onPress())
-    act(() => field().props.onChangeText(''))
-    act(() => field().props.onChangeText('$review.v2 '))
-    expect(readMobileNativeChatDraftInputs(scope).skills).toEqual([])
-  })
+      function Conversation() {
+        const value = useMobileNativeChatDraft(scope)
+        const session = useMobileStructuredAgentSession({
+          client,
+          sessionId: SESSION_ID,
+          sourceIdentity: 'host',
+          enabled: true,
+          connected: true,
+          agent,
+          hostSupport: CAPABLE,
+          composerScopeKey: scope,
+          onSendError: vi.fn()
+        })
+        return createElement(MobileNativeChatComposer, {
+          value,
+          agent,
+          draftScopeKey: scope,
+          onChangeText: (text) => setMobileNativeChatDraftText(scope, text),
+          onPickSkill: (skill) =>
+            updateMobileNativeChatDraftInputs(scope, (input) => ({
+              ...input,
+              skills: [...input.skills, skill]
+            })),
+          onSend: async (text) => {
+            const generation = readMobileNativeChatDraftEditGeneration(scope)
+            const accepted = (await session.sendWithOutcome(text)) === 'accepted'
+            if (accepted) {
+              clearMobileNativeChatDraftForSend(scope, generation, text)
+            }
+            return accepted
+          },
+          sendSurfaceId: scope,
+          getSendCompletionGeneration: () => 0,
+          getComposerEditGeneration: () => readMobileNativeChatDraftEditGeneration(scope),
+          structured: structured({
+            catalog: {
+              reported: [{ name: 'review.v2', kind: 'skill', path: '/remote/review/SKILL.md' }],
+              conversationCommands: []
+            }
+          })
+        })
+      }
+      await act(async () => {
+        renderer = create(createElement(Conversation))
+      })
+      act(() => publish?.(snapshotEvent()))
+      act(() => field().props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
+      await act(async () => labelled(token)[0]!.props.onPress())
+      expect(field().props.value).toBe(`${token} `)
+      await act(async () => labelled('Send message')[0]!.props.onPress())
+      const request = sendRequest.mock.calls.find(([method]) => method === 'agentSession.send')?.[1]
+      expect(request).toMatchObject({
+        body: {
+          blocks: [{ type: 'text', text: token }],
+          skills: [{ name: 'review.v2', path: '/remote/review/SKILL.md' }]
+        }
+      })
+      expect(field().props.value).toBe('')
+      expect(readMobileNativeChatDraftInputs(scope).skills).toEqual([])
+      act(() => field().props.onChangeText(`${token} `))
+      await act(async () => labelled('Send message')[0]!.props.onPress())
+      expect(
+        sendRequest.mock.calls.findLast(([method]) => method === 'agentSession.send')?.[1]
+      ).not.toHaveProperty('body.skills')
+      // Pick again, delete, then retype: text alone cannot resurrect the old remote identity.
+      act(() => field().props.onChangeText('/re'))
+      act(() => field().props.onSelectionChange({ nativeEvent: { selection: { end: 3 } } }))
+      await act(async () => labelled(token)[0]!.props.onPress())
+      act(() => field().props.onChangeText(''))
+      act(() => field().props.onChangeText(`${token} `))
+      expect(readMobileNativeChatDraftInputs(scope).skills).toEqual([])
+    }
+  )
 
   it('puts a picked skill at the start of the draft, highlighted, and deletes it as one unit', async () => {
     const onChangeText = vi.fn()

@@ -14,6 +14,11 @@ export function settleMobileQueuedEdit(
   if (edit.closed || edit.attempt !== attempt) {
     return 'stay'
   }
+  const loss =
+    edit.leaseLoss?.lease === edit.lease && edit.leaseLoss.expected === edit.fingerprint
+      ? edit.leaseLoss.status
+      : undefined
+  const lost = loss === 'changed' ? 'changed' : loss ? 'gone' : undefined
   const { messages, submissions } = edit.published
   const message = messages?.find((entry) => entry.messageId === edit.messageId)
   const available = edit.published.cards.some((entry) => entry.messageId === edit.messageId)
@@ -37,9 +42,10 @@ export function settleMobileQueuedEdit(
     }
     if (status !== 'updated' && status !== 'unchanged') {
       edit.attempt = undefined
-      return edit.pendingClose || (messages !== null && (!message || !available))
-        ? 'gone'
-        : 'refused'
+      return (
+        lost ??
+        (edit.pendingClose || (messages !== null && (!message || !available)) ? 'gone' : 'refused')
+      )
     }
     proof = result.value.fingerprint === attempt?.fingerprint
     if (!proof && attempt) {
@@ -48,7 +54,10 @@ export function settleMobileQueuedEdit(
     }
   } else if (result?.status === 'rejected') {
     edit.attempt = undefined
-    return edit.pendingClose || (messages !== null && (!message || !available)) ? 'gone' : 'refused'
+    return (
+      lost ??
+      (edit.pendingClose || (messages !== null && (!message || !available)) ? 'gone' : 'refused')
+    )
   } else if (result?.status === 'unknown' && attempt) {
     attempt.phase = 'unknown'
     edit.uncertain ||= attempt.fingerprint !== attempt.expected
@@ -56,7 +65,7 @@ export function settleMobileQueuedEdit(
   if (attempt && proof) {
     if (edit.uncertain && attempt.fingerprint === edit.fingerprint) {
       attempt.phase = 'unknown'
-      return edit.pendingClose || sent ? 'gone' : 'stay'
+      return lost ?? (edit.pendingClose || sent ? 'gone' : 'stay')
     }
     const equal =
       mobileQueuedEditValueKey(edit.text, readMobileNativeChatDraftInputs(edit.scopeKey)) ===
@@ -73,9 +82,18 @@ export function settleMobileQueuedEdit(
     if (equal) {
       return 'close'
     }
-    return edit.pendingClose || sent || (messages !== null && (!message || !available))
+    return edit.pendingClose ||
+      sent ||
+      (messages !== null && (!message || !available)) ||
+      loss === 'gone' ||
+      loss === 'not-editable'
       ? 'gone'
-      : 'rebase'
+      : loss === 'changed' && attempt.fingerprint === attempt.expected
+        ? 'changed'
+        : 'rebase'
+  }
+  if (lost) {
+    return lost
   }
   if (edit.pendingClose || (messages !== null && (!message || !available))) {
     return 'gone'

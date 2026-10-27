@@ -1,12 +1,10 @@
+import { insertNativeChatComposerDraftText } from './native-chat-composer-draft-insertion'
 // Pending chips outlive composers in memory; completed images persist immediately in their draft.
 
 import { useCallback, useSyncExternalStore } from 'react'
 import type { NativeChatComposerImageAttachment } from './NativeChatComposerField'
 import type { NativeChatComposerDraftOwner } from './native-chat-composer-draft-storage'
-import {
-  appendNativeChatAttachmentCache,
-  appendNativeChatDraftCache
-} from './native-chat-draft-cache'
+import { appendNativeChatAttachmentCache } from './native-chat-draft-cache'
 import { formatNativeChatFileReference } from '../../../../shared/agent-image-paste'
 import {
   appendToNativeChatComposerDraft,
@@ -212,7 +210,11 @@ export function settleNativeChatPendingAttachmentReferences(
   if (insertAtCaret && scopeKey === originalScope) {
     insertAtCaret(paths)
   } else {
-    appendNativeChatDraftCache(scopeKey, paths.map(formatNativeChatFileReference).join(' '), owner)
+    insertNativeChatComposerDraftText(
+      scopeKey,
+      paths.map(formatNativeChatFileReference).join(' '),
+      { owner }
+    )
   }
   return true
 }

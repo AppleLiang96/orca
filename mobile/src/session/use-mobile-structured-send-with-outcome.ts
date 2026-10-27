@@ -145,7 +145,8 @@ export function useMobileStructuredSendWithOutcome(args: {
       const wireText = nativeChatTextWithFileReferences(text, files)
       const skills = pickedSkillsInText(
         wireText,
-        readMobileNativeChatDraftInputs(args.composerScopeKey ?? null).skills
+        readMobileNativeChatDraftInputs(args.composerScopeKey ?? null).skills,
+        ['$', '/']
       )
       if (skills.length > MAX_SKILL_REFS) {
         onSendError(

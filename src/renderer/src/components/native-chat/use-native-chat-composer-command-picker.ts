@@ -1,5 +1,5 @@
-import { useCallback } from 'react'
-import { queuedMessageEditAcceptsText } from '../../../../shared/queued-message-edit-command'
+import { useCallback, useMemo } from 'react'
+import { prepareQueuedMessageEditText } from '../../../../shared/queued-message-edit-command'
 import { useNativeChatComposerCatalog } from './use-native-chat-composer-catalog'
 import {
   useNativeChatPickerState,
@@ -27,16 +27,15 @@ export function useNativeChatComposerCommandPicker(
   const { structuredTransport, editor, setNotice, editing, ...pickerArgs } = args
   const { agent, terminalTabId } = pickerArgs
   const { agentCommands, sessionSkills } = useNativeChatComposerCatalog(agent, structuredTransport)
+  const reported = structuredTransport?.sessionCommands
+  const hostSetsGoals = structuredTransport?.threadGoal !== undefined
+  const acceptsText = useMemo(
+    () => prepareQueuedMessageEditText(agent, reported, hostSetsGoals),
+    [agent, reported, hostSetsGoals]
+  )
   const commandAvailable = useCallback(
-    (name: string) =>
-      !editing ||
-      queuedMessageEditAcceptsText(
-        `/${name}`,
-        agent,
-        structuredTransport?.sessionCommands,
-        structuredTransport?.threadGoal !== undefined
-      ),
-    [editing, agent, structuredTransport?.sessionCommands, structuredTransport?.threadGoal]
+    (name: string) => !editing || acceptsText(`/${name}`),
+    [editing, acceptsText]
   )
   const picker = useNativeChatPickerState({
     ...pickerArgs,

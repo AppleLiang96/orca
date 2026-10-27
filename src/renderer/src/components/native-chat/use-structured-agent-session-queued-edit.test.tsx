@@ -1,158 +1,43 @@
-import { QueuedMessageUpdateParams } from '../../../../shared/rpc-contract/structured-agent-session-queued-edit-params'
-import { queuedMessageWithEdit } from '../../../../shared/queued-message-edit'
+// @vitest-environment happy-dom
+import {
+  script,
+  rpc,
+  HELD,
+  BASE,
+  SESSION,
+  SCOPE,
+  message,
+  harness,
+  begin,
+  holdCalls,
+  done,
+  withText,
+  submittedAs,
+  requestedFingerprint,
+  writeSpy,
+  type Outcome
+} from './structured-queued-edit.test-support'
+import { act, renderHook, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { toast } from 'sonner'
 import { queuedMessageUpdateDecision } from '../../../../main/native-chat/agent-session-journal/queued-message-update'
+import { agentSessionSendBodyFingerprint } from '../../../../shared/structured-agent-session-send-mutation'
+import type { AgentSessionQueuedMessageEditHoldResult } from '../../../../shared/agent-session-wire'
 import { captureInsertionTarget, insertText } from '../dictation/dictation-insertion-target'
+import { useStructuredAgentSessionQueuedEdit } from './use-structured-agent-session-queued-edit'
+import { projectQueuedMessageCards } from './structured-agent-session-queued-cards'
+import { write } from './structured-queued-edit.test-support'
 import { useNativeChatComposerEditSession } from './use-native-chat-composer-edit-session'
 import {
   readNativeChatComposerDraft,
   updateNativeChatComposerDraft
 } from './native-chat-composer-draft-store'
-// @vitest-environment happy-dom
-
-// Exercise real edit lifecycle with a scripted host: preserve dirty text on departure and keep lease failures from blocking typing/Save/Cancel.
-
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { toast } from 'sonner'
-import type { AgentJournalSubmission } from '../../../../shared/agent-session-journal-types'
-import type {
-  AgentSessionQueuedMessage,
-  AgentSessionQueuedMessageEditHoldParams,
-  AgentSessionQueuedMessageEditHoldResult,
-  AgentSessionQueuedMessageUpdateResult
-} from '../../../../shared/agent-session-wire'
-import { agentSessionSendBodyFingerprint } from '../../../../shared/structured-agent-session-send-mutation'
-import { useStructuredAgentSessionQueuedEdit } from './use-structured-agent-session-queued-edit'
-import { projectQueuedMessageCards } from './structured-agent-session-queued-cards'
 import {
   appendNativeChatAttachmentCache,
-  clearNativeChatDraftCacheForTests,
   readNativeChatDraftCache,
   writeNativeChatDraftCache
 } from './native-chat-draft-cache'
-import {
-  createMemoryNativeChatComposerDraftStorage,
-  setNativeChatComposerDraftStorageForTests
-} from './native-chat-composer-draft-storage'
-import type {
-  StructuredAgentSessionWrite,
-  StructuredAgentSessionWriteOutcome
-} from './use-structured-agent-session-mutate'
-
-const HELD: AgentSessionQueuedMessageEditHoldResult = {
-  status: 'held',
-  fingerprint: 'f'.repeat(64),
-  leaseDurationMs: 120_000,
-  remainingMs: 120_000
-}
-const rpc = vi.hoisted(() =>
-  vi.fn(
-    async (
-      _target: unknown,
-      _method: string,
-      params: AgentSessionQueuedMessageEditHoldParams
-    ): Promise<AgentSessionQueuedMessageEditHoldResult> =>
-      params.action === 'release' ? { status: 'released' } : HELD
-  )
-)
-vi.mock('@/runtime/structured-agent-session-client', () => ({ callStructuredAgentSession: rpc }))
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
-vi.mock('@/i18n/i18n', () => ({ translate: (_key: string, fallback: string) => fallback }))
-
-const SESSION = 'folder-session'
-const SCOPE = 'pane-draft'
-const message: AgentSessionQueuedMessage = {
-  messageId: 'card',
-  position: 2,
-  state: 'waiting',
-  body: {
-    kind: 'message',
-    role: 'user',
-    blocks: [{ type: 'text', text: 'original' }],
-    from: { kind: 'agent', senders: [], orchestration: null }
-  }
-}
-const BASE = agentSessionSendBodyFingerprint(SESSION, message.body)
-
-type Outcome = StructuredAgentSessionWriteOutcome<AgentSessionQueuedMessageUpdateResult>
-let answer: () => Promise<Outcome>
-const writeSpy = vi.fn(async (..._args: unknown[]) => answer())
-// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: this harness answers only queuedMessageUpdate, with that method's scripted outcome.
-const write = writeSpy as StructuredAgentSessionWrite
-
-type Props = {
-  messages: AgentSessionQueuedMessage[] | null
-  sessionId?: string
-  submissions?: AgentJournalSubmission[]
-  imagesCapable?: boolean
-  promptOpen?: boolean
-}
-function harness(capable = true, initial: Props = { messages: [message] }) {
-  return renderHook(
-    (props: Props) => {
-      const submissions = props.submissions ?? []
-      return useStructuredAgentSessionQueuedEdit({
-        transport: {
-          target: { kind: 'environment', environmentId: 'remote-host' },
-          sessionId: props.sessionId ?? SESSION,
-          capable,
-          imagesCapable: props.imagesCapable,
-          write
-        },
-        messages: props.messages,
-        cards: projectQueuedMessageCards(props.messages, submissions, {}),
-        submissions,
-        composerScopeKey: SCOPE,
-        promptOpen: props.promptOpen ?? false
-      })
-    },
-    { initialProps: initial }
-  )
-}
-type Hook = ReturnType<typeof harness>
-async function begin(hook: Hook) {
-  await act(() => hook.result.current.begin('card'))
-}
-function holdCalls(action: string) {
-  return rpc.mock.calls.filter((call) => call[2].action === action)
-}
-function done(value: AgentSessionQueuedMessageUpdateResult): () => Promise<Outcome> {
-  return async () => ({ kind: 'done', value })
-}
-function withText(text: string): AgentSessionQueuedMessage {
-  return { ...message, body: { ...message.body, blocks: [{ type: 'text', text }] } }
-}
-function submittedAs(text: string): AgentJournalSubmission {
-  return {
-    clientMessageId: 'submission',
-    queuedMessageId: 'card',
-    payloadFingerprint: agentSessionSendBodyFingerprint(SESSION, withText(text).body),
-    fence: 3,
-    dispatchState: 'pending',
-    providerItemId: null,
-    reason: null,
-    submittedAt: 1,
-    resolvedAt: null
-  }
-}
-
-beforeEach(() => {
-  rpc.mockClear()
-  writeSpy.mockClear()
-  vi.mocked(toast.error).mockClear()
-  clearNativeChatDraftCacheForTests()
-  setNativeChatComposerDraftStorageForTests(createMemoryNativeChatComposerDraftStorage())
-  answer = () =>
-    Promise.resolve({
-      kind: 'done',
-      value: { status: 'updated', messageId: 'card', fingerprint: requestedFingerprint() }
-    })
-})
-afterEach(() => {
-  cleanup()
-  vi.useRealTimers()
-})
-
 describe('inline queued editor', () => {
   it('holds the card on its host, saves against the full body, and leaves the chat box alone', async () => {
     writeNativeChatDraftCache(SCOPE, 'existing composer')
@@ -274,7 +159,7 @@ describe('inline queued editor', () => {
 
   it('changed puts the typing in the chat box and reopens on the newer text once it shows', async () => {
     writeNativeChatDraftCache(SCOPE, 'existing')
-    answer = done({ status: 'changed', messageId: 'card' })
+    script.answer = done({ status: 'changed', messageId: 'card' })
     const hook = harness()
     await begin(hook)
     act(() => hook.result.current.editor?.change('local'))
@@ -298,7 +183,7 @@ describe('inline queued editor', () => {
   })
 
   it('while a question holds the chat box, the notice says when the edit will be there', async () => {
-    answer = done({ status: 'gone', messageId: 'card', disposition: 'dispatched' })
+    script.answer = done({ status: 'gone', messageId: 'card', disposition: 'dispatched' })
     const hook = harness(true, { messages: [message], promptOpen: true })
     await begin(hook)
     act(() => hook.result.current.editor?.change('unsaved'))
@@ -314,7 +199,11 @@ describe('inline queued editor', () => {
     const hook = harness()
     await begin(hook)
     act(() => hook.result.current.editor!.change('saved'))
-    answer = async () => ({ kind: 'not-done', notice: 'lost', failure: { kind: 'unconfirmed' } })
+    script.answer = async () => ({
+      kind: 'not-done',
+      notice: 'lost',
+      failure: { kind: 'unconfirmed' }
+    })
     act(() => hook.result.current.editor!.save())
     await waitFor(() => expect(hook.result.current.editor!.saving).toBe(false))
     act(() => hook.result.current.editor!.change('saved plus unsaved'))
@@ -333,7 +222,7 @@ describe('inline queued editor', () => {
   })
 
   it('a refused Save says why once and keeps the editor', async () => {
-    answer = async () => ({
+    script.answer = async () => ({
       kind: 'not-done',
       notice: 'Too much text is waiting in the queue.',
       failure: { kind: 'failed' }
@@ -349,7 +238,7 @@ describe('inline queued editor', () => {
   })
 
   it('Save answering gone puts the typing in the chat box; another chat keeps it there once', async () => {
-    answer = done({ status: 'gone', messageId: 'card', disposition: 'dispatched' })
+    script.answer = done({ status: 'gone', messageId: 'card', disposition: 'dispatched' })
     const hook = harness()
     await begin(hook)
     act(() => hook.result.current.editor?.change('unsaved'))
@@ -403,7 +292,7 @@ describe('inline queued editor', () => {
     })
     function deferred() {
       let finish: (outcome: Outcome) => void = () => {}
-      answer = () =>
+      script.answer = () =>
         new Promise((resolve) => {
           finish = resolve
         })
@@ -442,7 +331,7 @@ describe('inline queued editor', () => {
     })
 
     it('the card still shows other text: the editor stays as it was, quietly', async () => {
-      answer = dropped
+      script.answer = dropped
       const hook = harness()
       await begin(hook)
       act(() => hook.result.current.editor?.change('typed'))
@@ -453,7 +342,7 @@ describe('inline queued editor', () => {
     })
 
     it('an answer that beats its own publication closes once the card shows the saved text, before it drains', async () => {
-      answer = dropped
+      script.answer = dropped
       const hook = harness()
       await begin(hook)
       act(() => hook.result.current.editor?.change('saved text'))
@@ -468,7 +357,7 @@ describe('inline queued editor', () => {
     })
 
     it('a card that drains with exactly the typed text, unseen, closes quietly too', async () => {
-      answer = dropped
+      script.answer = dropped
       const hook = harness()
       await begin(hook)
       act(() => hook.result.current.editor?.change('saved text'))
@@ -497,7 +386,7 @@ describe('inline queued editor', () => {
 
   it('a Save that lands and then drains reads as success, even with its answer lost', async () => {
     let finish: (outcome: Outcome) => void = () => {}
-    answer = () =>
+    script.answer = () =>
       new Promise((resolve) => {
         finish = resolve
       })
@@ -651,7 +540,7 @@ it.each(['updated', 'not-editable', 'clean-gone', 'cancel'] as const)(
       act(() => hook.result.current.editor!.cancel())
     } else {
       let reply: ((value: Outcome) => void) | undefined
-      answer = () =>
+      script.answer = () =>
         new Promise((resolve) => {
           reply = resolve
         })
@@ -696,7 +585,7 @@ it.each(['refused', 'unknown-committed', 'unknown-refused-unchanged'] as const)(
     writeNativeChatDraftCache(SCOPE, 'occupied')
     const hook = harness()
     await begin(hook)
-    answer =
+    script.answer =
       mode === 'refused'
         ? done({ status: 'not-editable', messageId: 'card' })
         : async () => ({
@@ -707,14 +596,14 @@ it.each(['refused', 'unknown-committed', 'unknown-refused-unchanged'] as const)(
     act(() => hook.result.current.editor!.change('attempt'))
     await act(async () => hook.result.current.editor!.save())
     if (mode === 'unknown-refused-unchanged') {
-      answer = done({ status: 'not-editable', messageId: 'card' })
+      script.answer = done({ status: 'not-editable', messageId: 'card' })
       act(() => hook.result.current.editor!.change('later refused'))
       await act(async () => hook.result.current.editor!.save())
     }
     act(() => hook.result.current.editor!.change('original'))
     const before = writeSpy.mock.calls.length
     vi.mocked(toast.error).mockClear()
-    answer = async () => {
+    script.answer = async () => {
       const body = mode === 'unknown-committed' ? withText('attempt').body : message.body
       const result = queuedMessageUpdateDecision(
         {
@@ -760,14 +649,3 @@ it.each(['refused', 'unknown-committed', 'unknown-refused-unchanged'] as const)(
     }
   }
 )
-
-function requestedFingerprint() {
-  const fields = QueuedMessageUpdateParams.omit({ envelope: true }).parse(
-    writeSpy.mock.calls.at(-1)?.[2]
-  )
-  const edited = queuedMessageWithEdit(message.body, fields)
-  if (!edited.ok) {
-    throw new Error(edited.reason)
-  }
-  return agentSessionSendBodyFingerprint(SESSION, edited.body)
-}

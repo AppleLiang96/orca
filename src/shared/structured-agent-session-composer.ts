@@ -132,11 +132,18 @@ export function isStructuredAgentSessionComposerCommand(
   agent: AgentType = 'codex',
   reported?: readonly AgentSessionSlashCommand[]
 ): boolean {
-  const command = commandParts(text)
-  return Boolean(
-    command &&
-    structuredRecognizedCommands(agent, reported).some((entry) => entry.name === command.name)
-  )
+  return prepareStructuredAgentSessionComposerCommand(agent, reported)(text)
+}
+
+export function prepareStructuredAgentSessionComposerCommand(
+  agent: AgentType,
+  reported?: readonly AgentSessionSlashCommand[]
+): (text: string) => boolean {
+  const names = new Set(structuredRecognizedCommands(agent, reported).map((entry) => entry.name))
+  return (text) => {
+    const command = commandParts(text)
+    return command !== null && names.has(command.name)
+  }
 }
 
 /** `/clear` or `/compact` alone: a conversation command with nothing after it. */

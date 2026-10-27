@@ -167,7 +167,8 @@ export function queuedMessageWithEdit(
   edit: QueuedMessageEdit
 ): QueuedMessageEditResult {
   const { text, images } = edit
-  const skills = edit.skills === undefined ? undefined : pickedSkillsInText(text, edit.skills)
+  const skills =
+    edit.skills === undefined ? undefined : pickedSkillsInText(text, edit.skills, ['$', '/'])
   const editable = queuedMessageEditableText(body)
   if (editable === null) {
     return { ok: false, reason: 'not-editable' }

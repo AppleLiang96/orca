@@ -1,3 +1,4 @@
+import type { QueuedEditLeaseLoss } from '../../../../shared/queued-message-edit-lease'
 import { readNativeChatComposerDraft } from './native-chat-composer-draft-store'
 import { queuedMessageWithEdit } from '../../../../shared/queued-message-edit'
 import {
@@ -70,6 +71,7 @@ export type NativeChatQueuedEditSession = NativeChatQueuedEditDraft & {
   acquiring: boolean
   attempt?: NativeChatQueuedEditAttempt
   uncertain: boolean
+  leaseLoss?: QueuedEditLeaseLoss
   closed: boolean
   pendingClose: boolean
   view: {

@@ -61,12 +61,16 @@ function seedSkills(
       const names = [...new Set(body.skills?.map(({ name }) => name) ?? [])]
         .sort((a, b) => b.length - a.length)
         .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-      const pattern = new RegExp(`\\$(?:${names.join('|')})(?![\\w:-])`, 'gu')
+      const pattern = new RegExp(`[$/](?:${names.join('|')})(?![\\w:-])`, 'gu')
       for (const match of text.matchAll(pattern)) {
-        const matching = body.skills?.filter(({ name }) => `$${name}` === match[0]) ?? []
-        const occurrence = occurrences.get(match[0]) ?? 0
+        if (match[0].startsWith('/') && match.index > 0 && !/\s/u.test(text[match.index - 1])) {
+          continue
+        }
+        const name = match[0].slice(1)
+        const matching = body.skills?.filter((skill) => skill.name === name) ?? []
+        const occurrence = occurrences.get(name) ?? 0
         const skill = matching[occurrence] ?? matching[0]
-        occurrences.set(match[0], occurrence + 1)
+        occurrences.set(name, occurrence + 1)
         if (!skill) {
           continue
         }
@@ -141,7 +145,9 @@ export function nativeChatQueuedEditInput(
   return {
     text,
     ...(imagesCapable ? { images } : {}),
-    ...(skillsCapable ? { skills: pickedSkillsInText(text, promptSkillRefs(draft.document)) } : {})
+    ...(skillsCapable
+      ? { skills: pickedSkillsInText(text, promptSkillRefs(draft.document), ['$', '/']) }
+      : {})
   }
 }
 

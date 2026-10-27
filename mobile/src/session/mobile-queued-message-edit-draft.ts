@@ -1,3 +1,4 @@
+import type { QueuedEditLeaseLoss } from '../../../src/shared/queued-message-edit-lease'
 import type { MobileStructuredAgentMutate } from './use-mobile-structured-agent-mutation'
 import type { MobileQueuedMessageCard } from './mobile-structured-queued-message-cards'
 import {
@@ -78,6 +79,7 @@ export type MobileQueuedEditDraft = {
     block: ReturnType<typeof queuedEditKeptImages>[number]['block']
   }[]
   uncertain: boolean
+  leaseLoss?: QueuedEditLeaseLoss
   attempt?: MobileQueuedEditAttempt
   closed: boolean
   pendingClose: boolean
@@ -152,7 +154,7 @@ export function serializeMobileQueuedEdit(
           )
         }
       : {}),
-    ...(skillsCapable ? { skills: pickedSkillsInText(edit.text, inputs.skills) } : {})
+    ...(skillsCapable ? { skills: pickedSkillsInText(edit.text, inputs.skills, ['$', '/']) } : {})
   }
 }
 

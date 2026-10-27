@@ -8,7 +8,6 @@ import type {
 
 import {
   appendToNativeChatComposerDraft,
-  subscribeToNativeChatComposerDraftAppend,
   clearNativeChatComposerDraftsForTests,
   readNativeChatComposerDraft,
   updateNativeChatComposerDraft
@@ -48,15 +47,6 @@ export function appendNativeChatDraftCache(
     return true
   }
   return appendToNativeChatComposerDraft(scopeKey, { text, images }, owner)
-}
-
-export function subscribeToNativeChatDraftAppend(
-  scopeKey: string,
-  listener: (text: string, previous: string) => void
-): () => void {
-  return subscribeToNativeChatComposerDraftAppend(scopeKey, (addition, previous) =>
-    listener(addition.text ?? '', previous.text)
-  )
 }
 
 export function clearNativeChatDraftCacheForTests(): void {

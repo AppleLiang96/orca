@@ -19,6 +19,11 @@ export function settleNativeChatQueuedEdit(
   if (edit.closed || edit.attempt !== attempt) {
     return 'stay'
   }
+  const loss =
+    edit.leaseLoss?.lease === edit.lease && edit.leaseLoss.expected === edit.baseFingerprint
+      ? edit.leaseLoss.status
+      : undefined
+  const lost = loss === 'changed' ? 'changed' : loss ? 'gone' : undefined
   const standing = queuedEditStanding(
     edit.view,
     edit.sessionId,
@@ -34,7 +39,7 @@ export function settleNativeChatQueuedEdit(
     }
     if (status !== 'updated' && status !== 'unchanged') {
       edit.attempt = undefined
-      return edit.pendingClose || standing === 'gone' ? 'gone' : 'refused'
+      return lost ?? (edit.pendingClose || standing === 'gone' ? 'gone' : 'refused')
     }
     proof = result.value.fingerprint === attempt?.fingerprint
     if (!proof && attempt) {
@@ -44,7 +49,7 @@ export function settleNativeChatQueuedEdit(
   } else if (result) {
     if (result.kind === 'dropped' || result.failure.kind !== 'unconfirmed') {
       edit.attempt = undefined
-      return edit.pendingClose || standing === 'gone' ? 'gone' : 'refused'
+      return lost ?? (edit.pendingClose || standing === 'gone' ? 'gone' : 'refused')
     }
     if (attempt) {
       attempt.phase = 'unknown'
@@ -56,14 +61,25 @@ export function settleNativeChatQueuedEdit(
     // An unchanged observation cannot exclude an older divergent CAS write from the same base.
     if (edit.uncertain && attempt.fingerprint === edit.baseFingerprint) {
       attempt.phase = 'unknown'
-      return edit.pendingClose || standing === 'sent' ? 'gone' : 'stay'
+      return lost ?? (edit.pendingClose || standing === 'sent' ? 'gone' : 'stay')
     }
     const equal = nativeChatQueuedEditValueKey(edit.scopeKey) === attempt.key
     rebaseNativeChatQueuedEdit(edit, attempt)
     if (equal) {
       return 'close'
     }
-    return edit.pendingClose || standing === 'sent' || standing === 'gone' ? 'gone' : 'rebase'
+    return edit.pendingClose ||
+      standing === 'sent' ||
+      standing === 'gone' ||
+      loss === 'gone' ||
+      loss === 'not-editable'
+      ? 'gone'
+      : loss === 'changed' && attempt.fingerprint === attempt.expected
+        ? 'changed'
+        : 'rebase'
+  }
+  if (lost) {
+    return lost
   }
   if (standing === 'gone' || edit.pendingClose) {
     return 'gone'

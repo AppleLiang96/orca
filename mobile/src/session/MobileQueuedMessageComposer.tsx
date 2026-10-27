@@ -1,4 +1,6 @@
-import { useContext, useEffect, useRef } from 'react'
+import { getNativeChatAgentProfile } from '../../../src/shared/native-chat-agent-profiles'
+import { pickedSkillsInText } from '../../../src/shared/structured-agent-session-send-mutation'
+import { useContext, useEffect, useMemo, useRef } from 'react'
 import { MobileQueuedMessageComposerContext } from './mobile-queued-message-composer-context'
 import { Text, type TextInput, View } from 'react-native'
 import { MobileNativeChatComposer } from './native-chat/composer/MobileNativeChatComposer'
@@ -9,7 +11,7 @@ import {
   updateMobileNativeChatDraftInputs,
   useMobileNativeChatDraftInputs
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
-import { queuedMessageEditAcceptsText } from '../../../src/shared/queued-message-edit-command'
+import { prepareQueuedMessageEditText } from '../../../src/shared/queued-message-edit-command'
 import { colors } from '../theme/mobile-theme'
 import { createUuidV4 } from '../../../src/shared/uuid-v4'
 
@@ -48,15 +50,19 @@ export function MobileQueuedMessageComposer({
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+  const agent = context?.agent ?? 'codex'
+  const reported = context?.structured?.catalog.reported
+  const acceptsText = useMemo(
+    () => prepareQueuedMessageEditText(agent, reported),
+    [agent, reported]
+  )
   const refuseCommand = (text: string, selectedSkill = false): boolean => {
     if (
       (selectedSkill &&
-        inputs.skills.some(({ name }) => text === `/${name}` || text.startsWith(`/${name} `))) ||
-      queuedMessageEditAcceptsText(
-        text,
-        context?.agent ?? 'codex',
-        context?.structured?.catalog.reported
-      )
+        pickedSkillsInText(text.split(/\s/u, 1)[0], inputs.skills, [
+          getNativeChatAgentProfile(agent)?.skillPrefix ?? '/'
+        ]).length > 0) ||
+      acceptsText(text)
     ) {
       return false
     }

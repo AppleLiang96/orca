@@ -6,7 +6,7 @@ import {
   type NativeChatPickerItem
 } from '../../../../../src/shared/native-chat-picker-items'
 import { sessionReportedSkills } from '../../../../../src/shared/native-chat-slash-commands'
-import { queuedMessageEditAcceptsText } from '../../../../../src/shared/queued-message-edit-command'
+import { prepareQueuedMessageEditText } from '../../../../../src/shared/queued-message-edit-command'
 import { structuredSessionSlashCommands } from '../../../../../src/shared/structured-agent-session-composer'
 import { getMobileNativeChatCommands } from '../mobile-native-chat-send-classification'
 
@@ -25,11 +25,12 @@ type SlashMenuInput = {
   structured: MobileComposerStructuredCatalog | undefined
   query: string
   editing?: boolean
+  acceptsText?: (text: string) => boolean
 }
 
 // Structured chats use reported commands/skills; terminal-backed chats retain curated commands without skills.
 function slashItems(
-  { agent, structured, query, editing }: SlashMenuInput,
+  { agent, structured, query, editing, acceptsText }: SlashMenuInput,
   limit: number
 ): NativeChatPickerItem[] {
   if (!agent) {
@@ -39,6 +40,7 @@ function slashItems(
   const commands = structured
     ? structuredSessionSlashCommands(agent, structured.conversationCommands, reported)
     : getMobileNativeChatCommands(agent)
+  const eligible = acceptsText ?? prepareQueuedMessageEditText(agent, reported)
   return buildNativeChatPickerItems(
     commands,
     [],
@@ -47,7 +49,7 @@ function slashItems(
     reported ? sessionReportedSkills(reported) : [],
     limit,
     '/',
-    editing ? (name) => queuedMessageEditAcceptsText(`/${name}`, agent, reported) : undefined
+    editing ? (name) => eligible(`/${name}`) : undefined
   )
 }
 

@@ -8,7 +8,7 @@ import {
   updateMobileNativeChatDraftInputs,
   resetMobileNativeChatDraftInputsForTests
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
-import { createElement } from 'react'
+import { createElement, type ReactNode } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, expect, vi } from 'vitest'
 import type {
@@ -56,12 +56,39 @@ vi.mock('react-native', () => ({
   View: 'View',
   Pressable: 'Pressable',
   ScrollView: 'ScrollView',
+  TextInput: 'TextInput',
+  ActivityIndicator: 'ActivityIndicator',
+  Image: 'Image',
+  Keyboard: { dismiss: vi.fn() },
+  Platform: { OS: 'ios' },
+  useWindowDimensions: () => ({ fontScale: 1 }),
   StyleSheet: { create: (styles: unknown) => styles }
 }))
 vi.mock('lucide-react-native', () => ({
   FileText: 'FileText',
   Package: 'Package',
-  Terminal: 'Terminal'
+  Terminal: 'Terminal',
+  ArrowUp: 'ArrowUp',
+  AtSign: 'AtSign',
+  AlertCircle: 'AlertCircle',
+  Image: 'Image',
+  Paperclip: 'Paperclip',
+  Check: 'Check',
+  ChevronDown: 'ChevronDown',
+  ChevronLeft: 'ChevronLeft',
+  ChevronRight: 'ChevronRight',
+  CornerDownRight: 'CornerDownRight',
+  ListEnd: 'ListEnd',
+  MoreHorizontal: 'MoreHorizontal',
+  Mic: 'Mic',
+  Pencil: 'Pencil',
+  Play: 'Play',
+  Plus: 'Plus',
+  Send: 'Send',
+  ShieldAlert: 'ShieldAlert',
+  Square: 'Square',
+  Trash2: 'Trash2',
+  X: 'X'
 }))
 vi.mock('@react-native-async-storage/async-storage', () => ({
   default: { getItem: async () => null, setItem: async () => {}, removeItem: async () => {} }
@@ -102,7 +129,9 @@ export function mobileQueuedEditHarness() {
     transport = client,
     composerScopeKey,
     imagesSupport = false,
-    skillsSupport = false
+    skillsSupport = false,
+    agent = 'codex',
+    renderContent
   }: {
     sessionId?: string
     editSupport?: boolean | null
@@ -112,7 +141,9 @@ export function mobileQueuedEditHarness() {
     composerScopeKey?: string
     imagesSupport?: boolean
     skillsSupport?: boolean
-  }): null {
+    agent?: string
+    renderContent?: (hook: ReturnType<typeof useMobileStructuredAgentSession>) => ReactNode
+  }): ReactNode {
     state.bottomText = useMobileNativeChatDraft('original-bottom')
     state.hook = useMobileStructuredAgentSession({
       client: transport,
@@ -120,7 +151,7 @@ export function mobileQueuedEditHarness() {
       sourceIdentity: 'host-a',
       enabled,
       connected,
-      agent: 'codex',
+      agent,
       hostSupport:
         editSupport === null
           ? null
@@ -140,7 +171,7 @@ export function mobileQueuedEditHarness() {
     state.menu = useMobileNativeChatComposerMenu({
       value: state.hook.queued.editor?.text ?? '',
       onChangeText: (text) => state.hook?.queued.editor?.change(text),
-      agent: 'codex',
+      agent,
       structuredCatalog: {
         reported: [{ name: 'review', kind: 'skill', path: '/B/SKILL.md' }],
         conversationCommands: []
@@ -155,7 +186,7 @@ export function mobileQueuedEditHarness() {
         }
       }
     })
-    return null
+    return renderContent?.(state.hook) ?? null
   }
   function requestedFingerprint(message: AgentSessionQueuedMessage) {
     const params = sendRequest.mock.calls.findLast(
@@ -168,7 +199,12 @@ export function mobileQueuedEditHarness() {
     }
     return agentSessionSendBodyFingerprint(SESSION_ID, edited.body)
   }
-  async function mount(message: AgentSessionQueuedMessage, editSupport: boolean | null = true) {
+  async function mount(
+    message: AgentSessionQueuedMessage,
+    editSupport: boolean | null = true,
+    agent = 'codex',
+    sessionId = SESSION_ID
+  ) {
     vi.clearAllMocks()
     resetMobileNativeChatDraftInputsForTests()
     resetMobileNativeChatDraftStoreForTests()
@@ -182,9 +218,10 @@ export function mobileQueuedEditHarness() {
         : readOrHoldReply(method, params)
     )
     await act(async () => {
-      state.renderer = create(createElement(Harness, { editSupport }))
+      state.renderer = create(createElement(Harness, { editSupport, agent, sessionId }))
     })
-    act(() => state.listener?.(snapshotEvent({ queuedMessages: [message], runningTurn: true })))
+    const snapshot = snapshotEvent({ queuedMessages: [message], runningTurn: true })
+    act(() => state.listener?.({ ...snapshot, sessionId, page: { ...snapshot.page, sessionId } }))
     if (editSupport !== null) {
       await act(async () => {
         expect(await state.hook!.queued.edit!(message.messageId)).toBe(true)
