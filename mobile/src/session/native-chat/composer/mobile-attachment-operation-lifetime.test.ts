@@ -9,6 +9,7 @@ import {
   resetMobileNativeChatDraftInputsForTests
 } from './mobile-native-chat-draft-inputs'
 import type { RpcClient } from '../../../transport/rpc-client'
+import type { RpcResponse } from '../../../transport/types'
 const picker = vi.hoisted(() => ({ pickFiles: vi.fn(), pickImages: vi.fn() }))
 vi.mock('../../../platform/media-picker', () => ({ useMediaPicker: () => picker }))
 afterEach(() => resetMobileNativeChatDraftInputsForTests())
@@ -27,7 +28,7 @@ it.each(['files', 'images'] as const)(
       })
       const starts: string[] = []
       const client: RpcClient = {
-        sendRequest: vi.fn(async (method) => {
+        sendRequest: vi.fn(async (method: string): Promise<RpcResponse> => {
           if (method.endsWith('uploadStart') || method === 'clipboard.startImageUpload') {
             starts.push(method)
             if (starts.length === 1) {
@@ -155,7 +156,7 @@ it.each(['files', 'images'] as const)(
 
 it('retains unique image identity across a real hook remount and removes only the chosen photo', async () => {
   const client: RpcClient = {
-    sendRequest: vi.fn(async (method) => ({
+    sendRequest: vi.fn(async (method: string): Promise<RpcResponse> => ({
       id: 'r',
       ok: true,
       result:

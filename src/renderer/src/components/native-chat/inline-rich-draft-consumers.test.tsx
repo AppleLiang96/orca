@@ -273,8 +273,7 @@ import type { StructuredAgentSessionWrite } from './use-structured-agent-session
 let controller: ReturnType<typeof useStructuredAgentSessionQueuedEdit>
 let picker: ReturnType<typeof useNativeChatPickerState>
 const saveRpc = vi.fn()
-// SAFETY: the joined harness invokes only queuedMessageUpdate and scripts that method's typed result.
-const joinedWrite = saveRpc as StructuredAgentSessionWrite
+const joinedWrite: StructuredAgentSessionWrite = saveRpc
 function InlineField({ scopeKey }: { scopeKey: string }) {
   const input = useRef<NativeChatComposerInput>(null)
   const draft = useNativeChatDraft(scopeKey, () => false)

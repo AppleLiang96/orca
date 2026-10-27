@@ -13,8 +13,11 @@ import {
 import { useMobileNativeChatFileAttachments } from './native-chat/composer/use-mobile-native-chat-file-attachments'
 import { useMobileNativeChatImageAttachments } from './native-chat/composer/use-mobile-native-chat-image-attachments'
 import { act } from 'react-test-renderer'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import type { MobileQueuedEditHostFixtureModule } from '../../../src/shared/mobile-queued-edit-host.test-fixture-contract'
 import { mobileQueuedEditHarness, readOrHoldReply } from './mobile-queued-edit-hook.test-fixture'
+import { TextInput } from 'react-native'
+import { ActionSheetModal } from '../components/ActionSheetModal'
 import { MobileQueuedMessageComposerContext } from './mobile-queued-message-composer-context'
 import { MobileNativeChatQueuedMessages } from './native-chat/input/MobileNativeChatQueuedMessages'
 import { MobileNativeChatComposer } from './native-chat/composer/MobileNativeChatComposer'
@@ -38,6 +41,12 @@ vi.mock('../components/bottom-drawer-modal-host-scope', () => ({
 }))
 
 describe('real phone inline composer from More through picker pruning and host body', () => {
+  let hostFixtures: MobileQueuedEditHostFixtureModule
+  beforeAll(async () => {
+    hostFixtures = await vi.importActual<MobileQueuedEditHostFixtureModule>(
+      '../../../src/main/native-chat/agent-session-wire/mobile-queued-edit-host.test-fixture'
+    )
+  })
   const { state, Harness, mount, sendRequest, error, resolved, client } = mobileQueuedEditHarness()
   const profiles = [
     ['claude', 'model', '/model'],
@@ -110,12 +119,12 @@ describe('real phone inline composer from More through picker pruning and host b
           node.props.accessibilityLabel === label && typeof node.props.onPress === 'function'
       )[0]!
     const field = () =>
-      root().find((node) => node.type === 'TextInput' && node.props.multiline === true)
+      root().find((node) => node.type === TextInput && node.props.multiline === true)
     const open = async () => {
       await act(async () => button('More actions').props.onPress())
       const sheet = root().find(
         (node) =>
-          node.type === 'ActionSheetModal' && node.props.actions?.[0]?.label === 'Edit message'
+          node.type === ActionSheetModal && node.props.actions?.[0]?.label === 'Edit message'
       )
       await act(async () => sheet.props.actions[0].onPress())
       expect(root().findAllByType(MobileQueuedMessageComposer)).toHaveLength(1)
@@ -259,22 +268,14 @@ describe('real phone inline composer from More through picker pruning and host b
   it.each(['question', 'approval'] as const)(
     'automatic/mail More→Edit→Save persists user authorship, position and options across journal reopen under %s',
     async (kind) => {
-      const { createQueuedMessageTestRig, QUEUED_RIG_CALLER } =
-        await import('../../../src/main/native-chat/agent-session-wire/structured-agent-session-queued-message-rig.test-fixture')
-      const { HOST_TEST_SESSION, HOST_TEST_NOW } =
-        await import('../../../src/main/native-chat/agent-session-wire/structured-agent-session-host-test-data')
-      const { QueuedMessageEditHoldParams } =
-        await import('../../../src/shared/rpc-contract/structured-agent-session-queued-edit-params')
       const { ok, snapshotEvent } =
         await import('./use-mobile-structured-agent-session-queued.test-fixture')
-      const clock = vi.spyOn(Date, 'now').mockReturnValue(HOST_TEST_NOW)
-      const rig = await createQueuedMessageTestRig()
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(hostFixtures.now)
+      const rig = await hostFixtures.createMobileQueuedEditHostFixture()
       try {
-        await rig.workingSend()
-        const journal = () =>
-          rig.host.collaboratorsForTests().sessions.get(HOST_TEST_SESSION)!.journal
+        await rig.start()
         const from = { kind: 'agent' as const, senders: [], orchestration: null }
-        const before = await journal().queuedMessages.insert({
+        const before = await rig.insert({
           messageId: `mail-${kind}`,
           body: {
             kind: 'message',
@@ -285,62 +286,56 @@ describe('real phone inline composer from More through picker pruning and host b
           },
           options: { model: 'saved-model', effort: 'high' }
         })
-        const { button, field, open } = await rows(before, 'codex', HOST_TEST_SESSION)
+        const beforeWire = await rig.published(before.messageId)
+        const { button, field, open } = await rows(beforeWire, 'codex', rig.sessionId)
         act(() => state.hook!.queued.editor!.cancel())
+        const pending = {
+          options: [{ id: 'yes', label: 'Yes' }],
+          resolution: {
+            state: 'pending' as const,
+            selectedOptionId: null,
+            resolvedBy: null,
+            resolvedAt: null
+          }
+        }
         const prompt = snapshotEvent({
-          queuedMessages: [before],
+          queuedMessages: [beforeWire],
           items: [
             {
               itemId: 'prompt',
               revision: 1,
               sequence: 1,
               observedAt: 1,
-              body: {
-                kind,
-                ...(kind === 'question' ? { question: 'Pick' } : { title: 'Allow?', detail: null }),
-                options: [{ id: 'yes', label: 'Yes' }],
-                resolution: {
-                  state: 'pending',
-                  selectedOptionId: null,
-                  resolvedBy: null,
-                  resolvedAt: null
-                }
-              }
+              body:
+                kind === 'question'
+                  ? { kind, question: 'Pick', ...pending }
+                  : { kind, title: 'Allow?', detail: null, ...pending }
             }
           ]
         })
         act(() =>
           state.listener?.({
             ...prompt,
-            sessionId: HOST_TEST_SESSION,
-            page: { ...prompt.page, sessionId: HOST_TEST_SESSION }
+            sessionId: rig.sessionId,
+            page: { ...prompt.page, sessionId: rig.sessionId }
           })
         )
         await open()
         const hostResults: unknown[] = []
         sendRequest.mockImplementation(async (method, params) => {
           if (method === 'agentSession.queuedMessageEditHold') {
-            return ok(
-              await rig.host.queuedMessageEditHold(
-                QUEUED_RIG_CALLER,
-                QueuedMessageEditHoldParams.parse(params)
-              )
-            )
+            return ok(await rig.request(method, params))
           }
           if (method !== 'agentSession.queuedMessageUpdate') {
             return readOrHoldReply(method, params)
           }
-          const { envelope: clientEnvelope, ...fields } = QueuedMessageUpdateParams.parse(params)
-          const result = await rig.host.queuedMessageUpdate(QUEUED_RIG_CALLER, {
-            ...fields,
-            envelope: rig.envelope(fields, method, clientEnvelope.clientOperationId)
-          })
+          const result = await rig.request(method, params)
           hostResults.push(result)
           return ok(result)
         })
         // Equal Save proves no durable sender mutation or update RPC.
         await act(async () => button('Save edited message').props.onPress())
-        expect(journal().queuedMessages.get(before.messageId)?.body.from).toEqual(from)
+        expect(rig.read(before.messageId)?.body.from).toEqual(from)
         expect(
           sendRequest.mock.calls.some(([method]) => method === 'agentSession.queuedMessageUpdate')
         ).toBe(false)
@@ -352,23 +347,24 @@ describe('real phone inline composer from More through picker pruning and host b
         ])
         expect(error.mock.calls).toEqual([])
         expect(state.hook!.queued.editor).toBeUndefined()
-        const accepted = journal().queuedMessages.get(before.messageId)!
+        const accepted = rig.read(before.messageId)!
         expect(accepted).toMatchObject({
           position: before.position,
           options: before.options,
           body: { sentAs: 'goal', blocks: [{ type: 'text', text: 'user replacement' }] }
         })
         expect(accepted.body).not.toHaveProperty('from')
-        await rig.restartHostProcess()
-        await rig.drafts()
-        const reopened = journal().queuedMessages.get(before.messageId)!
+        await rig.restart()
+        const reopened = rig.read(before.messageId)!
         expect(reopened).toEqual(accepted)
-        const publication = snapshotEvent({ queuedMessages: [reopened] })
+        const publication = snapshotEvent({
+          queuedMessages: [await rig.published(reopened.messageId)]
+        })
         act(() =>
           state.listener?.({
             ...publication,
-            sessionId: HOST_TEST_SESSION,
-            page: { ...publication.page, sessionId: HOST_TEST_SESSION }
+            sessionId: rig.sessionId,
+            page: { ...publication.page, sessionId: rig.sessionId }
           })
         )
         await open()

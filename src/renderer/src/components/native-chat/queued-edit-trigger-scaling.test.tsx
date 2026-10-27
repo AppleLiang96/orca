@@ -120,7 +120,7 @@ it.each([10, 100])(
         })
       },
       {
-        initialProps: { draft: '', agent: 'claude' as AgentType, editing: true, target: transport }
+        initialProps: { draft: '', agent: 'claude', editing: true, target: transport }
       }
     )
     expect(prepare).toHaveBeenCalledTimes(1)

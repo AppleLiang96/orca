@@ -5,6 +5,7 @@ import { agentSessionSendBodyFingerprint } from '../../../src/shared/structured-
 import { queuedMessageWithEdit } from '../../../src/shared/queued-message-edit'
 import { queuedMessageUpdateDecision } from '../../../src/main/native-chat/agent-session-journal/queued-message-update'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
+import type { RpcResponse } from '../transport/types'
 import {
   mobileNativeChatDraftDestination,
   readMobileNativeChatDraftInputs,
@@ -167,7 +168,7 @@ describe('mobile queued replacement contracts', () => {
     )
     expect(row).toBeDefined()
     act(() => state.menu!.pick(row!))
-    act(() => state.hook!.queued.editor!.change(state.hook!.queued.editor!.text + 'suffix'))
+    act(() => state.hook!.queued.editor!.change(`${state.hook!.queued.editor!.text}suffix`))
     act(() =>
       updateMobileNativeChatDraftInputs(key, (before) => ({
         ...before,
@@ -253,7 +254,7 @@ describe('mobile queued replacement contracts', () => {
         ]
       }))
     })
-    let finish: ((response: import('../transport/types').RpcResponse) => void) | undefined
+    let finish: ((response: RpcResponse) => void) | undefined
     sendRequest.mockImplementation((method, params) =>
       method === 'agentSession.queuedMessageUpdate'
         ? new Promise((resolve) => {

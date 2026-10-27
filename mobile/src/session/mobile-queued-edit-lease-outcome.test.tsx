@@ -100,7 +100,9 @@ describe('mobile current acquisition belongs to the Save outcome owner', () => {
       })
       expect(decision.status).toBe(mode === 'unchanged' ? 'unchanged' : 'updated')
       if (mode === 'newer' || mode === 'fresh-loss' || mode === 'gone' || mode === 'depart') {
-        act(() => state.hook!.queued.editor!.insertDictation!('C'))
+        act(() => {
+          state.hook!.queued.editor!.insertDictation!('C')
+        })
       }
       if (mode === 'gone') {
         host.depart()
@@ -149,7 +151,7 @@ describe('mobile current acquisition belongs to the Save outcome owner', () => {
         mode === 'late-unknown' ||
         mode === 'depart'
       ) {
-        if (mode !== 'depart' && mode !== 'depart-equal') {
+        if (mode !== 'depart') {
           expect(state.hook!.queued.editor).toBeUndefined()
         }
         expect(append).toHaveBeenCalledOnce()
@@ -266,7 +268,9 @@ describe('mobile current acquisition belongs to the Save outcome owner', () => {
           text: 'rival'
         })
       }
-      await act(() => vi.advanceTimersByTimeAsync(30_000))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
       if (mode === 'pending-proof') {
         expect(state.hook!.queued.editor?.saving).toBe(true)
         expect(notice).not.toHaveBeenCalled()
@@ -295,7 +299,9 @@ describe('mobile current acquisition belongs to the Save outcome owner', () => {
           : ['acquire', 'renew', 'acquire', 'release']
       )
       const count = sendRequest.mock.calls.length
-      await act(() => vi.advanceTimersByTimeAsync(120_000))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000)
+      })
       expect(sendRequest.mock.calls).toHaveLength(count)
       host.leases.dispose()
     }
@@ -332,7 +338,9 @@ describe('mobile current acquisition belongs to the Save outcome owner', () => {
       if (status === 'gone') {
         host.depart()
       }
-      await act(() => vi.advanceTimersByTimeAsync(30_000))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
       if (status === 'gone') {
         expect(state.hook!.queued.editor).toBeUndefined()
         expect(append).toHaveBeenCalledOnce()
