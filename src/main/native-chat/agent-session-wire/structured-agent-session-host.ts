@@ -240,8 +240,7 @@ export class StructuredAgentSessionHost {
 
   reconcileRestartLeases = (): Promise<void> => this.restore.reconcileRestartLeases()
 
-  restoreReadableSessions = (sessionIds?: readonly string[]): Promise<void> =>
-    this.restore.restoreReadableSessions(sessionIds)
+  restoreReadableSessions = (ids?: readonly string[]) => this.restore.restoreReadableSessions(ids)
 
   revealSession = (sessionId: string): Promise<HostTypes.StructuredAgentSessionReveal> =>
     reveal.revealStructuredAgentSession(this.deps, sessionId, this.lifetime.conversation)
@@ -325,6 +324,8 @@ export class StructuredAgentSessionHost {
   currentWork = this.clientDelivery.readCurrentWork
   readCurrentRequests: StructuredAgentSessionBackgroundTaskChannel['currentRequests'] = (...args) =>
     this.backgroundTasks.currentRequests(...args)
+
+  observeJournalPublications = this.clientDelivery.observeJournalPublications
 
   subscribe = (input: AgentSessionSubscribeInput) => this.backgroundTasks.subscribe(input)
 
