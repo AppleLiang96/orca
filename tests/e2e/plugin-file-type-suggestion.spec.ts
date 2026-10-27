@@ -3,79 +3,24 @@
  * its extension; View plugin opens the plugin's page and never installs.
  */
 
-import { PLUGIN_MANIFEST_V2_SINCE } from '../../src/shared/plugins/manifest/plugin-schema-field-docs'
-import { cp, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TestInfo } from '@stablyai/playwright-test'
 import { expect, test } from '@stablyai/playwright-test'
-import { hashPluginTree } from '../../src/main/plugins/plugin-content-hash'
 import { attachRepoAndOpenTerminal, createRestartSession } from './helpers/orca-restart'
-import { commitRepository, configureFixtureGit, headCommit } from './helpers/plugin-git-fixture'
+import {
+  createGleamCatalogFixture,
+  GLEAM_PLUGIN_KEY as PLUGIN_KEY
+} from './helpers/plugin-gleam-catalog-fixture'
 import { openRepoFile } from './helpers/plugin-smoke'
-
-const PLUGIN = 'orca-gleam-syntax'
-const PLUGIN_KEY = `stablyai.${PLUGIN}`
-
-async function createCatalogFixture(root: string) {
-  const repositories = join(root, 'repositories')
-  const home = join(root, 'home')
-  await mkdir(home, { recursive: true })
-  const gitEnvironment = await configureFixtureGit(home, repositories, ['orca-plugins', PLUGIN])
-
-  const plugin = join(repositories, `${PLUGIN}.git`)
-  await cp(join(process.cwd(), 'examples', 'plugins', PLUGIN), plugin, { recursive: true })
-  // Why before init: the release vouches for the plugin files, not the repository metadata.
-  const hashed = await hashPluginTree(plugin)
-  if (!hashed.ok) {
-    throw new Error(hashed.error)
-  }
-  await commitRepository(plugin, gitEnvironment)
-
-  const catalog = join(repositories, 'orca-plugins.git')
-  await mkdir(catalog, { recursive: true })
-  await writeFile(
-    join(catalog, 'orca-catalog.json'),
-    JSON.stringify({
-      catalogVersion: 2,
-      name: 'Orca Plugins',
-      owner: 'stablyai',
-      plugins: [
-        {
-          id: PLUGIN_KEY,
-          source: { kind: 'git', url: `https://github.com/stablyai/${PLUGIN}.git`, ref: 'v1.0.0' },
-          releases: [
-            {
-              version: '1.0.0',
-              commit: await headCommit(plugin, gitEnvironment),
-              contentHash: hashed.hash,
-              execution: 'data',
-              minimumOrca: PLUGIN_MANIFEST_V2_SINCE,
-              name: 'Gleam',
-              types: ['syntax'],
-              fileTypes: ['gleam']
-            }
-          ]
-        }
-      ]
-    })
-  )
-  await commitRepository(catalog, gitEnvironment)
-
-  const workspace = join(root, 'workspace')
-  await mkdir(workspace, { recursive: true })
-  await writeFile(join(workspace, 'main.gleam'), 'pub fn main() { Nil }\n')
-  await commitRepository(workspace, gitEnvironment)
-  // Why realpath: Orca registers the repository by its resolved path, as macOS /var is a link.
-  return { gitEnvironment, workspace: await realpath(workspace) }
-}
 
 // oxlint-disable-next-line no-empty-pattern -- Playwright passes fixtures before testInfo.
 test('suggests a catalog plugin for an unknown file and never installs it', async ({}, testInfo) => {
   // Why: one Electron launch plus a Git catalog fetch and a plugin page; slower than the 30s default on CI.
   test.setTimeout(180_000)
   const root = await mkdtemp(join(tmpdir(), 'orca-file-type-suggestion-e2e-'))
-  const fixture = await createCatalogFixture(root)
+  const fixture = await createGleamCatalogFixture(root)
   const session = createRestartSession(testInfo as TestInfo, fixture.gitEnvironment)
   let launched: Awaited<ReturnType<typeof session.launch>> | null = null
   try {

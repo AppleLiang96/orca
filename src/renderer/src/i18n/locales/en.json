@@ -958,6 +958,9 @@
       "pluginAutoUpdates": {
         "one": "{{value0}} updated to {{value1}}",
         "many": "{{value0}} plugins updated"
+      },
+      "pluginInstallLink": {
+        "invalid": "That plugin link isn’t valid."
       }
     },
     "lib": {
@@ -19172,6 +19175,15 @@
         "viewing": "Currently viewing",
         "viewingChild": "Viewing subagent {{name}}",
         "returnHint": "Click the parent row to return. Esc stops this subagent. Enter sends your draft to this subagent."
+      },
+      "plugins": {
+        "PluginCatalogLinkDialog": {
+          "failed": "Couldn’t add this catalog.",
+          "title": "Add catalog {{value0}}?",
+          "description": "A link asked to show {{value0}} from {{value1}}. Add catalogs only from people you trust.",
+          "cancel": "Cancel",
+          "add": "Add catalog"
+        }
       }
     },
     "i18n": {

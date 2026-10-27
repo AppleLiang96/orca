@@ -70,6 +70,7 @@ export function registerMainProcessIpcHandlers(): void {
     state.pendingOpenSettings.matches(event.sender.id, { consume: true })
   )
   ipcMain.handle('ui:consumePendingSkillShare', () => state.skillShareDeepLinks.consume())
+  ipcMain.handle('ui:consumePendingPluginInstallLink', () => state.pluginInstallLinks.consume())
   // Pull delivers cold-start Open With and proves the listener is ready for later pushes.
   ipcMain.handle('ui:consumePendingMarkdownFileOpens', async () => {
     state.osDocumentOpenListenerReady = true
