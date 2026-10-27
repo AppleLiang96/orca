@@ -3,15 +3,15 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Repo } from '../../../../shared/repo-types'
+import type { Repo } from '../../../../../shared/repo-types'
 import type {
   GhAccountBindingInventory,
   GhAuthAccount,
   GhMultiAccountCapability
-} from '../../../../shared/github/auth-types'
-import type { GhAccountBinding } from '../../../../shared/github/account-binding'
-import type * as RepositoryGitHubAccountModule from './repository/identity/repository-github-account'
-import { isGhAccountBindingEnforced } from './repository/identity/repository-github-account'
+} from '../../../../../shared/github/auth-types'
+import type { GhAccountBinding } from '../../../../../shared/github/account-binding'
+import type * as RepositoryGitHubAccountModule from './identity/repository-github-account'
+import { isGhAccountBindingEnforced } from './identity/repository-github-account'
 import { RepositoryGitHubAccountSection } from './RepositoryGitHubAccountSection'
 
 const { listAccountsMock, validateBindingMock, storeState } = vi.hoisted(() => {
@@ -35,14 +35,14 @@ vi.mock('@/store/index', () => {
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
 
-vi.mock('./repository/identity/repository-github-account', async (importOriginal) => ({
+vi.mock('./identity/repository-github-account', async (importOriginal) => ({
   ...(await importOriginal<typeof RepositoryGitHubAccountModule>()),
   listRepositoryGhBindableAccounts: listAccountsMock,
   validateRepositoryGhAccountBinding: validateBindingMock
 }))
 
 // Why: Radix Select needs pointer/layout APIs happy-dom lacks; a native select keeps value + disabled testable.
-vi.mock('../ui/select', () => ({
+vi.mock('../../ui/select', () => ({
   Select: ({
     value,
     onValueChange,

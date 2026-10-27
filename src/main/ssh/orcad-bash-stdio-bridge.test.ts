@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { createServer, type Server, type Socket } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -265,20 +265,25 @@ describe.runIf(RELAY)('the bash stdio bridge', () => {
 
   it('waits for the cat it kills before exiting, so no zombie is left for the session init', async () => {
     // WSL's per-session init never reaps orphans; a zombie there kept an idle distro running (R40).
-    // This cat takes a moment to die and leaves a mark, so the relay must wait to see it.
+    // The stub cats mark when their TERM trap is in place, and the one the relay kills takes a
+    // moment to die and leaves a mark: the relay may exit only after that mark exists.
     const dir = mkdtempSync(join(scratch, 'reap-'))
     const bin = join(dir, 'bin')
     mkdirSync(bin)
     writeFileSync(
       join(bin, 'cat'),
       '#!/bin/sh\n' +
-        `trap 'kill $c 2>/dev/null; sleep 0.3; : > "${join(dir, 'killed-cat')}"; exit 0' TERM\n` +
+        `trap 'kill $c 2>/dev/null; sleep 0.3; : > "${join(dir, 'killed')}"; exit 0' TERM\n` +
+        `: > "${join(dir, 'trap')}.$$"\n` +
         `${realCat()} "$@" & c=$!\nwait $c\n` +
-        // The relay starts the socket reader first; the stdin reader stays blocked as on a real
-        // host, where the desktop keeps its pipe open.
-        `mkdir "${join(dir, 'socket-reader')}" 2>/dev/null || { sleep 30 & c=$!; wait $c; }\n`,
+        // The relay's socket is fd 3: its reader (stdin is fd 3) ends with orcad; the stdin reader
+        // stays blocked, as on a real host where the desktop keeps its pipe open, until killed.
+        '[ /dev/fd/0 -ef /dev/fd/3 ] && exit 0\n' +
+        'sleep 30 & c=$!\nwait $c\n',
       { mode: 0o755 }
     )
+    const trapsSet = (): number =>
+      readdirSync(dir).filter((name) => name.startsWith('trap.')).length
     let accepted: Socket | null = null
     const server = createServer((socket) => {
       accepted = socket
@@ -289,10 +294,12 @@ describe.runIf(RELAY)('the bash stdio bridge', () => {
       const exited = exitOf(child)
       await decode(child.stdout).ready
       await expect.poll(() => accepted).not.toBeNull()
-      // orcad hangs up: the reading cat ends, the relay kills the one still reading stdin.
+      // Hang up only once both cats can take the relay's kill on their trap.
+      await expect.poll(trapsSet, { timeout: 10_000 }).toBe(2)
+      // orcad hangs up: the socket reader ends, the relay kills the stdin reader.
       accepted!.destroy()
       await expect(exited).resolves.toBe(0)
-      expect(existsSync(join(dir, 'killed-cat'))).toBe(true)
+      expect(existsSync(join(dir, 'killed'))).toBe(true)
     } finally {
       server.close()
     }
