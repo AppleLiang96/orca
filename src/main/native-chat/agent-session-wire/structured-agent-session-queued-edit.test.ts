@@ -2,7 +2,7 @@ import { startQueuedEditLease } from '../../../shared/queued-message-edit-lease'
 import { acquired, fakeCodex } from '../../codex/codex-structured-session-adapter-fixture'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import {
   createQueuedMessageTestRig,
   eventually,
@@ -629,7 +629,7 @@ it.each(['retry-not-editable', 'renew-gone'] as const)(
       request,
       onLost
     })
-    let missing: ReturnType<typeof vi.spyOn> | undefined
+    let missing: MockInstance<typeof rig.store.getConversation> | undefined
     try {
       if (mode === 'retry-not-editable') {
         await expect(lease.acquired).rejects.toThrow('offline')

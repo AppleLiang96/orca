@@ -29,7 +29,10 @@ import {
 } from './native-chat-composer-draft-journal'
 import { resolveNativeChatPastedText } from './native-chat-composer-pasted-text-references'
 import { nativeChatPastedTextToken } from './native-chat-pasted-text-reference'
-import { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-send-mutation'
+import {
+  structuredAgentSessionSendBody,
+  agentSessionSendBodyFingerprint
+} from '../../../../shared/structured-agent-session-send-mutation'
 
 const scope = 'agent-session:rich-return'
 let composing = false
@@ -266,7 +269,6 @@ import type {
   AgentSessionQueuedMessageEditHoldResult
 } from '../../../../shared/agent-session-wire'
 import { queuedMessageWithEdit } from '../../../../shared/queued-message-edit'
-import { agentSessionSendBodyFingerprint } from '../../../../shared/structured-agent-session-send-mutation'
 import type { StructuredAgentSessionWrite } from './use-structured-agent-session-mutate'
 let controller: ReturnType<typeof useStructuredAgentSessionQueuedEdit>
 let picker: ReturnType<typeof useNativeChatPickerState>

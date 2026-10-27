@@ -1,19 +1,22 @@
 import type { QueuedEditLeaseLoss } from '../../../../shared/queued-message-edit-lease'
-import { readNativeChatComposerDraft } from './native-chat-composer-draft-store'
+import {
+  readNativeChatComposerDraft,
+  updateNativeChatComposerDraft,
+  subscribeToNativeChatComposerDraft
+} from './native-chat-composer-draft-store'
 import { queuedMessageWithEdit } from '../../../../shared/queued-message-edit'
 import {
   nativeChatQueuedEditInput,
-  nativeChatQueuedEditHeld
+  nativeChatQueuedEditHeld,
+  handBackNativeChatQueuedEdit,
+  type NativeChatQueuedEditDraft
 } from './native-chat-queued-edit-draft'
 import type { NativeChatComposerDraft } from './native-chat-composer-draft-storage'
-import { updateNativeChatComposerDraft } from './native-chat-composer-draft-store'
 import { promptMarkersToImageReferences } from '../../../../shared/native-chat-image-transcript-markers'
 import { nativeChatImageRowIds } from './native-chat-composer-image-references'
 import { useEffect } from 'react'
 import { toast } from 'sonner'
 import { translate } from '@/i18n/i18n'
-import { handBackNativeChatQueuedEdit } from './native-chat-queued-edit-draft'
-import { subscribeToNativeChatComposerDraft } from './native-chat-composer-draft-store'
 import { subscribeToNativeChatPendingAttachments } from './native-chat-pending-attachment-cache'
 import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type { AgentSessionQueuedMessage } from '../../../../shared/agent-session-wire'
@@ -21,7 +24,6 @@ import type {
   AgentJournalMessageItem,
   AgentJournalSubmission
 } from '../../../../shared/agent-session-journal-types'
-import type { NativeChatQueuedEditDraft } from './native-chat-queued-edit-draft'
 import type { QueuedEditLease } from './structured-agent-session-queued-edit-lease'
 import type { QueuedMessageCard } from './structured-agent-session-queued-cards'
 import type { StructuredAgentSessionWrite } from './use-structured-agent-session-mutate'

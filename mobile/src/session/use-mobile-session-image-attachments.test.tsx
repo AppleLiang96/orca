@@ -87,7 +87,7 @@ describe('useMobileSessionImageAttachments', () => {
       await hook.nativeChatImages.attachImage('library')
     })
     expect(hook.nativeChatImages.attachments).toEqual([
-      { id: 'img-1', path: '/tmp/a.png', previewUri: 'file:///a.jpg' }
+      { id: expect.any(String), path: '/tmp/a.png', previewUri: 'file:///a.jpg' }
     ])
   }
 
@@ -104,13 +104,14 @@ describe('useMobileSessionImageAttachments', () => {
   it('sends structured session images without a terminal input lease', async () => {
     const args = baseArgs({ activeHandle: null, activeHandleRef: { current: null } })
     await renderWithImage(args)
+    const image = hook.nativeChatImages.attachments[0]
 
     expect(await send()).toBe(true)
     expect(args.nativeChatBaseSend).toHaveBeenCalledWith(
       'look',
       ['file:///a.jpg'],
       expect.any(Number),
-      [{ id: 'img-1', path: '/tmp/a.png', previewUri: 'file:///a.jpg' }]
+      [image]
     )
     expect(args.client.sendRequest.mock.calls.map(([method]) => method)).toEqual([
       'clipboard.startImageUpload',

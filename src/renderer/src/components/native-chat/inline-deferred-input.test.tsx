@@ -14,7 +14,10 @@ import { NativeChatPromptEditor } from './NativeChatPromptEditor'
 import { useNativeChatDraft } from './use-native-chat-draft'
 import { useNativeChatComposerHandle } from './use-native-chat-composer-handle'
 import type { NativeChatComposerInput } from './native-chat-composer-input'
-import type { NativeChatComposerHandle } from './native-chat-composer-types'
+import type {
+  NativeChatComposerHandle,
+  NativeChatStructuredComposerTransport
+} from './native-chat-composer-types'
 import { registerNativeChatComposerDestination } from './native-chat-composer-destination'
 import {
   readNativeChatComposerDraft,
@@ -23,7 +26,6 @@ import {
 import { promptSkillRefs, promptText } from './native-chat-prompt-document'
 import { changePrompt, promptEditor } from './native-chat-prompt-editor.test-support'
 import { dispatchNativeChatStructuredComposerText } from './native-chat-structured-composer-dispatch'
-import type { NativeChatStructuredComposerTransport } from './native-chat-composer-types'
 import { structuredAgentSessionSendBody } from '../../../../shared/structured-agent-session-send-mutation'
 import { resolveNativeChatPastedText } from './native-chat-composer-pasted-text-references'
 import {

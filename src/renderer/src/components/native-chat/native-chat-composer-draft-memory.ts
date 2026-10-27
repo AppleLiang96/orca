@@ -1,8 +1,8 @@
-import type { NativeChatComposerDraft } from './native-chat-composer-draft-storage'
 import type { NativeChatComposerDraftAddition } from './native-chat-composer-draft-addition'
 // Memory owns drafts; storage keeps a copy shared by the API and persistence modules.
 
 import type {
+  NativeChatComposerDraft,
   NativeChatComposerDraftImage,
   StoredNativeChatComposerDraft
 } from './native-chat-composer-draft-storage'

@@ -1,4 +1,7 @@
-import { readNativeChatComposerDraft } from './native-chat-composer-draft-store'
+import {
+  readNativeChatComposerDraft,
+  captureNativeChatEditDraftDestination
+} from './native-chat-composer-draft-store'
 import { useNativeChatPickerCommandDispatch } from './use-native-chat-picker-command-dispatch'
 import { useCallback, useLayoutEffect, useMemo, type RefObject } from 'react'
 import type { AgentType } from '../../../../shared/agent-status-types'
@@ -6,7 +9,6 @@ import type { NativeChatPickerItem } from '../../../../shared/native-chat-picker
 import { prepareQueuedMessageEditText } from '../../../../shared/queued-message-edit-command'
 import { translate } from '@/i18n/i18n'
 import { registerDictationComposerTarget } from '../dictation/dictation-insertion-target'
-import { captureNativeChatEditDraftDestination } from './native-chat-composer-draft-store'
 import { insertNativeChatComposerDraftText } from './native-chat-composer-draft-insertion'
 import { registerNativeChatComposerDestination } from './native-chat-composer-destination'
 import type {

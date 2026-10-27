@@ -6,7 +6,10 @@ import {
   handBackNativeChatQueuedEdit,
   discardNativeChatQueuedEdit
 } from './native-chat-queued-edit-draft'
-import { updateNativeChatComposerDraft } from './native-chat-composer-draft-store'
+import {
+  updateNativeChatComposerDraft,
+  clearNativeChatComposerDraftsForTests
+} from './native-chat-composer-draft-store'
 import {
   nativeChatPastedTextOperations,
   nativeChatPastedTextToken
@@ -32,7 +35,6 @@ import {
 } from '../dictation/dictation-insertion-target'
 import { NativeChatMentionMenu } from './NativeChatAutocompleteMenus'
 import type { NativeChatComposerHandle } from './native-chat-composer-types'
-import { clearNativeChatComposerDraftsForTests } from './native-chat-composer-draft-store'
 
 afterEach(() => {
   cleanup()
