@@ -260,6 +260,7 @@ describe('OrcaRuntimeService', () => {
     setPlatform('win32')
     const { runtimeStore, removeWorktreeMeta } = createStaleRuntimeWorktreeStore(TEST_WORKTREE_ID)
     const runtime = createWorktreeRemovalRuntime(runtimeStore)
+    deleteWorktreeHistoryDirMock.mockClear()
     const teardown = vi.spyOn(runtime, 'acquireFileWatcherRemoval')
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
     await mkdir(TEST_WORKTREE_PATH, { recursive: true })
@@ -396,7 +397,8 @@ describe('OrcaRuntimeService', () => {
       const result = await runtime.removeManagedWorktree(worktreeId, { force: true })
 
       expect(result).toEqual({
-        preservedBranch: { branchName: 'feature/foo', head: 'abc' }
+        preservedBranch: { branchName: 'feature/foo', head: 'abc' },
+        warning: `orca.yaml archive hook skipped for ${missingWorktreePath}; pass --run-hooks to run it.`
       })
       expect(runHook).not.toHaveBeenCalled()
       expect(removeWorktree).toHaveBeenCalledWith(
