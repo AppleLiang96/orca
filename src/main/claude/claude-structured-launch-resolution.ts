@@ -146,7 +146,9 @@ export async function resolveClaudeStructuredInvocation(
   options?: Parameters<typeof claudeChildEnv>[2]
 ): Promise<ClaudeStructuredInvocation> {
   const sources = resolvedSources ?? (await resolveClaudeChildEnvSources(deps))
+  deps.signal?.throwIfAborted()
   const auth = await deps.resolveAuthPolicy()
+  deps.signal?.throwIfAborted()
   // Preserve proxy credentials alongside ANTHROPIC_BASE_URL for every account.
   return {
     command: sources.command,

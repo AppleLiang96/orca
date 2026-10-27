@@ -4,6 +4,8 @@ import { requireLegacyAgentSessionAccountHome } from '../../../shared/agent-sess
 import { agentSessionPinnedLaunchDirectory } from '../../runtime/agent-session-record-launch-directory'
 import type { StructuredAgentSessionAtRestCommands } from './structured-agent-session-at-rest-commands'
 import { atRestCommandContextReady } from './at-rest-command-context'
+import { stat } from 'node:fs/promises'
+import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 
 /** Running chats supply their own lists; rescan resting folders/accounts after this TTL. */
 export const AT_REST_COMMANDS_TTL_MS = 5 * 60_000
@@ -29,12 +31,14 @@ export type AtRestCommandSource = {
     record: AgentSessionRecord,
     cwd: string,
     isCurrent: () => boolean,
-    /** Grows on every retire; sources that cache provider answers reload for a newer one. */
-    generation: number
+    generation: number,
+    signal: AbortSignal,
+    admitted: () => void
   ) => Promise<AtRestCommandScan>
   resolveWorkspacePath: (workspaceId: string) => Promise<string>
   label: string
   now?: () => number
+  dispose?: () => void
 }
 
 type Entry = {
@@ -47,6 +51,7 @@ type Entry = {
   scannedAt: number
   failures: number
   scanning: boolean
+  attempt?: AbortController
   lastReadAt: number
   settled: Set<() => void>
 }
@@ -68,6 +73,7 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
         continue
       }
       this.entries.delete(key)
+      entry.attempt?.abort()
       entry.settled.forEach((done) => done())
     }
     queueMicrotask(() => {
@@ -81,6 +87,7 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
     this.disposed = true
     this.retireContext()
     this.listeners.clear()
+    this.source.dispose?.()
   }
 
   read = (record: AgentSessionRecord): AgentSessionSlashCommand[] | undefined =>
@@ -168,23 +175,50 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
   }
 
   private scanInto(entry: Entry, record: AgentSessionRecord): void {
-    const isCurrent = (): boolean => !this.disposed && this.entries.get(entry.key) === entry
+    const attempt = new AbortController()
+    entry.attempt = attempt
+    const owns = (): boolean => !this.disposed && this.entries.get(entry.key) === entry
+    const isCurrent = (): boolean => owns() && !attempt.signal.aborted
+    const timer = setTimeout(
+      () => attempt.abort(new Error('Command discovery timed out')),
+      AT_REST_COMMANDS_TTL_MS
+    )
+    let admittedAt: number | undefined
+    const admitted = (): void => {
+      admittedAt ??= this.now()
+    }
     entry.scanning = true
     void (async () => {
-      await atRestCommandContextReady()
+      const wait = <T>(work: Promise<T>): Promise<T> =>
+        waitForPromiseWithSignal(work, attempt.signal)
+      await wait(Promise.resolve(atRestCommandContextReady()))
       const cwd =
         agentSessionPinnedLaunchDirectory(record) ??
-        (await this.source.resolveWorkspacePath(record.location.workspaceId))
-      return isCurrent()
-        ? this.source.scan(record, cwd, isCurrent, entry.generation)
+        (await wait(this.source.resolveWorkspacePath(record.location.workspaceId)))
+      const directory = await wait(stat(cwd)).catch((error: unknown) => {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+        ) {
+          return undefined
+        }
+        throw error
+      })
+      attempt.signal.throwIfAborted()
+      const answer = directory?.isDirectory()
+        ? await this.source.scan(record, cwd, isCurrent, entry.generation, attempt.signal, admitted)
         : { commands: undefined, fromAgent: false }
+      attempt.signal.throwIfAborted()
+      return answer
     })()
       .then(
         ({ commands, fromAgent }) => {
           if (!isCurrent()) {
             return
           }
-          entry.scannedAt = this.now()
+          entry.scannedAt = admittedAt ?? this.now()
           entry.failures = 0
           // Refresh settles even when fallback cannot supersede an agent-provided list.
           if (entry.fromAgent && !fromAgent) {
@@ -200,7 +234,7 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
           }
         },
         (error: unknown) => {
-          if (!isCurrent()) {
+          if (!owns()) {
             return
           }
           entry.failures += 1
@@ -212,6 +246,8 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
         }
       )
       .finally(() => {
+        clearTimeout(timer)
+        entry.attempt = undefined
         entry.scanning = false
         entry.settled.forEach((done) => done())
       })

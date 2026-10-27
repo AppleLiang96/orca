@@ -1,8 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import * as Files from 'node:fs/promises'
+import * as Catalog from '../native-chat/agent-session-wire/at-rest-command-catalog'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FLOATING_TERMINAL_WORKTREE_ID } from '../../shared/constants'
 import { agentSessionRecordFixture } from '../native-chat/agent-session-record-test-fixture'
 import type { CodexAppServerInvocation } from './codex-app-server-session'
+import type { CodexAtRestSkillsDeps } from './codex-at-rest-skills-probe'
 import { createCodexAtRestSkillCatalog } from './codex-at-rest-skills-probe'
+
+vi.mock('node:fs/promises', async (original) => ({
+  ...(await original<typeof Files>()),
+  stat: vi.fn(async () => ({ isDirectory: () => true }))
+}))
+afterEach(() => vi.useRealTimers())
 
 function floatingCodexChat(sessionId: string, launchDirectory: string) {
   return agentSessionRecordFixture({
@@ -14,17 +23,68 @@ function floatingCodexChat(sessionId: string, launchDirectory: string) {
   })
 }
 
-/** Answers skills/list with one entry per requested folder, as Codex does. */
-function listingRpc(onRequest?: (params: unknown) => void) {
+const visits = vi.hoisted(() => vi.fn((current: boolean) => current))
+vi.mock('../native-chat/agent-session-wire/at-rest-command-catalog', async (original) => {
+  const actual = await original<typeof Catalog>()
   return {
-    request: async (_method: string, params?: Record<string, unknown>) => {
-      onRequest?.(params)
-      const cwds = Array.isArray(params?.cwds) ? params.cwds.map(String) : []
-      return {
-        data: cwds.map((cwd) => {
-          const name = `${cwd.split('/').at(-1)}-skill`
-          return { cwd, skills: [{ name, path: `${cwd}/${name}/SKILL.md` }] }
+    ...actual,
+    AtRestCommandCatalog: class extends actual.AtRestCommandCatalog {
+      constructor(source: ConstructorParameters<typeof actual.AtRestCommandCatalog>[0]) {
+        super({
+          ...source,
+          scan: (...args) => {
+            const current = args[2]
+            args[2] = () => visits(current())
+            return source.scan(...args)
+          }
         })
+      }
+    }
+  }
+})
+function harness(deps: Partial<CodexAtRestSkillsDeps> = {}) {
+  const initialized = Promise.withResolvers<void>(),
+    closed = Promise.withResolvers<void>()
+  let live = 0,
+    peak = 0
+  const calls: CodexAppServerInvocation[] = []
+  const request = vi.fn(listingRpc().request)
+  const initialize = vi.fn(() => initialized.promise)
+  const catalog = createCodexAtRestSkillCatalog({
+    resolveWorkspacePath: async () => '/work/one',
+    resolveLaunchArgs: () => [],
+    resolveCommand: () => '/bin/codex',
+    runSession: async (invocation, body) => {
+      calls.push(invocation)
+      peak = Math.max(peak, ++live)
+      try {
+        await initialize()
+        return await body({ request, notify: () => {} })
+      } finally {
+        await closed.promise
+        live--
+      }
+    },
+    ...deps
+  })
+  return { catalog, calls, request, initialize, initialized, closed, peak: () => peak }
+}
+function listingRpc() {
+  return {
+    request: async (_method: string, params: Record<string, unknown> = {}) => {
+      const cwds = Array.isArray(params.cwds) ? params.cwds.map(String) : []
+      return {
+        data: cwds
+          .map((cwd) => ({
+            cwd,
+            skills: [
+              {
+                name: `${cwd.split('/').at(-1)}-skill`,
+                path: `${cwd}/${cwd.split('/').at(-1)}-skill/SKILL.md`
+              }
+            ]
+          }))
+          .toReversed()
       }
     },
     notify: () => {}
@@ -81,125 +141,6 @@ describe('a resting Codex chat lists the skills Codex would load', () => {
     settling.forEach((resolve) => resolve())
   })
 
-  it('keeps probe processes bounded however many resting folders ask', async () => {
-    let clock = 0
-    let live = 0
-    let peak = 0
-    const spawned: string[] = []
-    const settling: (() => void)[] = []
-    const catalog = createCodexAtRestSkillCatalog({
-      resolveWorkspacePath: async () => '/unused',
-      resolveLaunchArgs: () => [],
-      resolveEnvironment: async () => ({ PATH: '/bin' }),
-      resolveCommand: () => '/bin/codex',
-      now: () => clock,
-      sleep: () => new Promise((resolve) => settling.push(resolve)),
-      runSession: async (invocation, body) => {
-        spawned.push(String(invocation.env?.CODEX_HOME))
-        live += 1
-        peak = Math.max(peak, live)
-        try {
-          return await body(listingRpc())
-        } finally {
-          // Counted until teardown ends, as the process slot is.
-          await Promise.resolve()
-          live -= 1
-        }
-      }
-    })
-    const chats = Array.from({ length: 160 }, (_, index) =>
-      agentSessionRecordFixture({
-        sessionId: `chat-${index}`,
-        provider: 'codex',
-        accountHome: { variable: 'CODEX_HOME', path: `/home/account-${index % 3}` },
-        launchDirectory: `/work/w${index}`,
-        location: { workspaceId: FLOATING_TERMINAL_WORKTREE_ID }
-      })
-    )
-    const readAll = () => chats.forEach((chat) => catalog.read(chat))
-    catalog.onChange(readAll)
-    readAll()
-    await vi.waitFor(() => expect(settling).toHaveLength(2))
-    expect(live).toBe(2)
-    // The third account waits for a slot instead of starting a third process.
-    clock += 70_000
-    settling.splice(0).forEach((resolve) => resolve())
-    await vi.waitFor(() => expect(settling).toHaveLength(1))
-    expect(spawned.toSorted()).toEqual(['/home/account-0', '/home/account-1', '/home/account-2'])
-    clock += 70_000
-    settling.splice(0).forEach((resolve) => resolve())
-    await Promise.all(chats.map((chat) => catalog.settled(chat, 1_000)))
-    for (const [index, chat] of chats.entries()) {
-      expect(catalog.read(chat)?.find((row) => row.kind === 'skill')?.name).toBe(`w${index}-skill`)
-    }
-    expect(peak).toBe(2)
-    // Repeated reads inside the TTL start nothing.
-    vi.useFakeTimers()
-    try {
-      for (let round = 0; round < 10; round += 1) {
-        readAll()
-      }
-      await vi.advanceTimersByTimeAsync(20)
-      expect(spawned).toHaveLength(3)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('reloads a live probe after an explicit refresh instead of handing back its cached list', async () => {
-    const asked: unknown[] = []
-    const settling: (() => void)[] = []
-    const catalog = createCodexAtRestSkillCatalog({
-      resolveWorkspacePath: async () => '/unused',
-      resolveLaunchArgs: () => [],
-      resolveCommand: () => '/bin/codex',
-      now: () => 0,
-      sleep: () => new Promise((resolve) => settling.push(resolve)),
-      runSession: async (_invocation, body) =>
-        body(
-          listingRpc((params) => {
-            asked.push(params)
-          })
-        )
-    })
-    const chat = floatingCodexChat('one', '/work/one')
-    catalog.read(chat)
-    await catalog.settled(chat, 1_000)
-    catalog.retireContext()
-    catalog.read(chat)
-    await catalog.settled(chat, 1_000)
-    expect(asked).toEqual([{ cwds: ['/work/one'] }, { cwds: ['/work/one'], forceReload: true }])
-    expect(settling).toHaveLength(1)
-    settling.forEach((resolve) => resolve())
-  })
-
-  it('backs off a probe that cannot start, and a refresh does not reset that', async () => {
-    let spawns = 0
-    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
-    const catalog = createCodexAtRestSkillCatalog({
-      resolveWorkspacePath: async () => '/unused',
-      resolveLaunchArgs: () => [],
-      resolveCommand: () => '/bin/codex',
-      now: () => 0,
-      runSession: async () => {
-        spawns += 1
-        throw new Error('spawn codex ENOENT')
-      }
-    })
-    try {
-      const chat = floatingCodexChat('one', '/work/one')
-      catalog.read(chat)
-      await catalog.settled(chat, 1_000)
-      catalog.retireContext()
-      catalog.read(chat)
-      await catalog.settled(chat, 1_000)
-      expect(spawns).toBe(1)
-      expect(warned).toHaveBeenCalledTimes(2)
-    } finally {
-      warned.mockRestore()
-    }
-  })
-
   it.each(['method not found', 'temporary failure'])(
     'retains the floor after %s without holding the answer',
     async (message) => {
@@ -234,4 +175,147 @@ describe('a resting Codex chat lists the skills Codex would load', () => {
       await vi.waitFor(() => expect(closed).toBe(true))
     }
   )
+  it.each([16, 160])(
+    'keeps %i queued folders linear through cancellation and teardown',
+    async (count) => {
+      vi.useFakeTimers()
+      visits.mockClear()
+      let canonical = true,
+        mirrored = true
+      const h = harness({
+          prepareHome: () => {
+            mirrored = canonical
+          }
+        }),
+        removed = vi.spyOn(Set.prototype, 'delete')
+      const chats = Array.from({ length: count }, (_, i) =>
+        floatingCodexChat(String(i), `/work/w${i}`)
+      )
+      chats.forEach(h.catalog.read)
+      await vi.advanceTimersByTimeAsync(0)
+      canonical = false
+      h.catalog.retireContext()
+      chats.forEach(h.catalog.read)
+      h.request.mockImplementation(async (_method, params = {}) => ({
+        data: (Array.isArray(params.cwds) ? params.cwds.map(String) : []).map((cwd) => ({
+          cwd,
+          skills: mirrored ? [{ name: 'plugin', path: '/plugin/SKILL.md' }] : []
+        }))
+      }))
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      h.initialized.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.calls).toHaveLength(1)
+      expect(h.request).toHaveBeenCalledTimes(count / 8)
+      expect(visits.mock.calls.length).toBeLessThan(8 * count)
+      expect(removed.mock.calls.length).toBeLessThan(20 * count)
+      removed.mockRestore()
+      expect(chats.map(h.catalog.read).every(Boolean)).toBe(true)
+      h.catalog.retireContext()
+      h.request.mockRejectedValueOnce(new Error('reload failed'))
+      h.catalog.read(chats[0])
+      await vi.advanceTimersByTimeAsync(10_000)
+      await h.catalog.settled(chats[0], 1_000)
+      expect(h.request.mock.calls[0][1]?.forceReload).toBe(true)
+      expect(h.request.mock.lastCall?.[1]?.forceReload).toBe(true)
+      expect(h.catalog.read(chats[0])?.filter((row) => row.kind === 'skill')).toEqual([])
+      h.catalog.retireContext()
+      await vi.advanceTimersByTimeAsync(59_999)
+      expect(h.calls[0].signal?.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      const others = ['two', 'three'].map((home) =>
+        agentSessionRecordFixture({
+          sessionId: home,
+          provider: 'codex',
+          accountHome: { variable: 'CODEX_HOME', path: home }
+        })
+      )
+      others.forEach(h.catalog.read)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.calls).toHaveLength(2)
+      expect(h.peak()).toBe(2)
+      h.closed.resolve()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(h.calls).toHaveLength(3)
+      expect(h.peak()).toBe(2)
+      h.catalog.dispose()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(vi.getTimerCount()).toBe(0)
+      const failed = harness()
+      failed.closed.resolve()
+      failed.initialize.mockRejectedValue(new Error('initialize failed'))
+      const identities = chats.map((chat, i) => ({
+        ...chat,
+        accountHome: { variable: 'CODEX_HOME', path: String(i) }
+      }))
+      identities.forEach(failed.catalog.read)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(failed.calls).toHaveLength(count)
+      for (const seconds of [10, 30, 90, 300]) {
+        const before = failed.calls.length
+        failed.catalog.retireContext()
+        failed.catalog.read(identities[0])
+        await vi.advanceTimersByTimeAsync(0)
+        expect(failed.calls).toHaveLength(before)
+        await vi.advanceTimersByTimeAsync(seconds * 1_000)
+        failed.catalog.retireContext()
+        await failed.catalog.settled(identities[0], 1_000)
+        expect(failed.calls).toHaveLength(before + 1)
+      }
+      await vi.advanceTimersByTimeAsync(3_170_000)
+      expect(vi.getTimerCount()).toBe(1)
+      await vi.advanceTimersByTimeAsync(430_000)
+      expect(vi.getTimerCount()).toBe(0)
+      failed.catalog.dispose()
+      warned.mockRestore()
+    }
+  )
+  it('caps per-key failures, ages success from admission, skips missing cwd and evicts unread entries', async () => {
+    vi.useFakeTimers()
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const scan = vi.fn<Catalog.AtRestCommandSource['scan']>(async (...args) => {
+      if (scan.mock.calls.length <= 3) {
+        throw new Error('source failed')
+      }
+      args[5]()
+      if (scan.mock.calls.length === 4) {
+        await new Promise((resolve) => setTimeout(resolve, 105_000))
+      }
+      return { commands: [], fromAgent: true }
+    })
+    const catalog = new Catalog.AtRestCommandCatalog({
+      accepts: () => true,
+      resolveWorkspacePath: async () => '/work',
+      label: 'fixture',
+      scan
+    })
+    const chat = floatingCodexChat('one', '/work/one')
+    let attempts = 0
+    for (const ms of [0, 10_000, 10_000, 299_999]) {
+      await vi.advanceTimersByTimeAsync(ms)
+      catalog.read(chat)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(scan).toHaveBeenCalledTimes(Math.min(++attempts, 3))
+    }
+    await vi.advanceTimersByTimeAsync(1)
+    catalog.read(chat)
+    await vi.advanceTimersByTimeAsync(105_000)
+    expect(catalog.read(chat)).toEqual([])
+    await vi.advanceTimersByTimeAsync(195_000)
+    await catalog.settled(chat, 1_000)
+    expect(scan).toHaveBeenCalledTimes(5)
+    catalog.retireContext()
+    vi.mocked(Files.stat).mockRejectedValueOnce(
+      Object.assign(new Error('gone'), { code: 'ENOENT' })
+    )
+    expect(await catalog.settled(chat, 1_000)).toBeUndefined()
+    expect(scan).toHaveBeenCalledTimes(5)
+    const removed = vi.spyOn(Map.prototype, 'delete')
+    await vi.advanceTimersByTimeAsync(3_600_000)
+    await catalog.settled(floatingCodexChat('two', '/work/two'), 1_000)
+    expect(removed.mock.calls.flat().join()).toContain('/work/one')
+    removed.mockRestore()
+    catalog.dispose()
+    warned.mockRestore()
+  })
 })

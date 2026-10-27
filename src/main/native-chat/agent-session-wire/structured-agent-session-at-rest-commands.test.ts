@@ -1,3 +1,6 @@
+import { createCodexAtRestSkillCatalog } from '../../codex/codex-at-rest-skills-probe'
+import { refreshAtRestCommandContext } from './at-rest-command-context'
+import { waitForPromiseWithSignal } from '../../../shared/abort-signal-reason'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -228,6 +231,128 @@ describe("a Claude chat whose Claude isn't running lists Claude's own `/` comman
       expect(asked).toHaveLength(3)
     } finally {
       warned.mockRestore()
+    }
+  })
+  it('cancels source preparation, fallback and close before any late work', async () => {
+    vi.useFakeTimers()
+    const listed = (name: string) =>
+      `${JSON.stringify({
+        type: 'control_response',
+        response: {
+          subtype: 'success',
+          request_id: 'orca-command-discovery',
+          response: { commands: [{ name, description: name, argumentHint: '', builtin: true }] }
+        }
+      })}\n`
+    let pending = Promise.withResolvers<string>()
+    let fallback = Promise.withResolvers<void>(),
+      entered = Promise.withResolvers<void>()
+    let stage = '',
+      blocked = false
+    const block = async <T>(at: string, value: T): Promise<T> => {
+      if (stage.endsWith(at) && !blocked) {
+        blocked = true
+        entered.resolve()
+        await pending.promise
+      }
+      return value
+    }
+    const asked: unknown[][] = []
+    const probe = createClaudeCommandCatalogProbe({
+      resolveCommand: () => 'claude',
+      resolveInheritedEnv: () => block('environment', { PATH: '/bin' }),
+      resolveAuthPolicy: () => ({ account: 'system' }),
+      runListing: async (...call) => {
+        asked.push(call)
+        if (stage.endsWith('close')) {
+          entered.resolve()
+        }
+        if (stage.endsWith('fallback') && !blocked) {
+          throw new Error('CLI failed')
+        }
+        if (stage.endsWith('close') && !blocked) {
+          try {
+            await waitForPromiseWithSignal(pending.promise, call[1].signal)
+          } finally {
+            await fallback.promise
+          }
+        }
+        return listed('recovered')
+      }
+    })
+    const claude = new ClaudeAtRestCommandCatalog({
+      resolveWorkspacePath: async () => workspace,
+      probe,
+      discover: async (args) =>
+        waitForPromiseWithSignal(block('fallback', { skills: [], sources: [] }), args.signal)
+    })
+    const codex = createCodexAtRestSkillCatalog({
+      resolveWorkspacePath: () => block('workspace', workspace),
+      resolveEnvironment: () => block('environment', { PATH: '/bin' }),
+      resolveLaunchArgs: () => block('arguments', []),
+      resolveCommand: () => '/bin/codex',
+      runSession: async (invocation, body) => {
+        asked.push([invocation])
+        return body({
+          request: async () => ({ data: [{ cwd: workspace, skills: [] }] }),
+          notify: () => {}
+        })
+      }
+    })
+    const record = store.getRecord(SESSION)!
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    try {
+      for (stage of [
+        'codex/readiness',
+        'codex/workspace',
+        'codex/environment',
+        'codex/arguments',
+        'claude/environment',
+        'claude/fallback',
+        'claude/close'
+      ]) {
+        pending = Promise.withResolvers<string>()
+        fallback = Promise.withResolvers<void>()
+        entered = Promise.withResolvers<void>()
+        blocked = false
+        const catalog = stage.startsWith('codex') ? codex : claude
+        const chat = {
+          ...record,
+          provider: stage.startsWith('codex') ? ('codex' as const) : ('claude' as const)
+        }
+        const ready = stage.endsWith('readiness')
+          ? refreshAtRestCommandContext(() => block('readiness', undefined))
+          : Promise.resolve()
+        catalog.retireContext()
+        const starting = asked.length
+        catalog.read(chat)
+        await entered.promise
+        if (stage.endsWith('close')) {
+          for (const workspaceId of ['two', 'three']) {
+            catalog.read({ ...chat, location: { ...chat.location, workspaceId } })
+          }
+          await vi.waitFor(() => expect(asked).toHaveLength(starting + 2))
+        }
+        await vi.advanceTimersByTimeAsync(300_000)
+        const before = asked.length
+        blocked = true
+        pending.resolve(listed('late'))
+        fallback.resolve()
+        await ready
+        await vi.advanceTimersByTimeAsync(0)
+        expect(asked).toHaveLength(before)
+        expect(catalog.read(chat)).toBeUndefined()
+        await vi.advanceTimersByTimeAsync(10_000)
+        expect(await catalog.settled(chat, 1_000)).toBeDefined()
+        expect(asked).toHaveLength(before + 1)
+      }
+      expect(warned).toHaveBeenCalledTimes(10)
+    } finally {
+      fallback.resolve()
+      codex.dispose()
+      claude.dispose()
+      warned.mockRestore()
+      vi.useRealTimers()
     }
   })
 })
