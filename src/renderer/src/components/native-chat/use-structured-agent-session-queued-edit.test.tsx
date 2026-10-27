@@ -16,7 +16,7 @@ import {
   requestedFingerprint,
   writeSpy,
   type Outcome
-} from './structured-queued-edit.test-support'
+} from './structured-queued-edit.test-fixture'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
@@ -26,7 +26,7 @@ import type { AgentSessionQueuedMessageEditHoldResult } from '../../../../shared
 import { captureInsertionTarget, insertText } from '../dictation/dictation-insertion-target'
 import { useStructuredAgentSessionQueuedEdit } from './use-structured-agent-session-queued-edit'
 import { projectQueuedMessageCards } from './structured-agent-session-queued-cards'
-import { write } from './structured-queued-edit.test-support'
+import { write } from './structured-queued-edit.test-fixture'
 import { useNativeChatComposerEditSession } from './use-native-chat-composer-edit-session'
 import {
   readNativeChatComposerDraft,

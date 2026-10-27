@@ -11,7 +11,7 @@ import {
   requestedFingerprint,
   holdCalls,
   type Outcome
-} from './structured-queued-edit.test-support'
+} from './structured-queued-edit.test-fixture'
 import { act, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'

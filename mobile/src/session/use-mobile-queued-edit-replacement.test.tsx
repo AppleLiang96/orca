@@ -22,7 +22,7 @@ import {
   mobileQueuedEditHarness,
   withText,
   readOrHoldReply
-} from './mobile-queued-edit-hook.test-support'
+} from './mobile-queued-edit-hook.test-fixture'
 
 describe('mobile queued replacement contracts', () => {
   const { state, Harness, mount, sendRequest, append, notice, resolved, requestedFingerprint } =

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { harness, begin, message, script, withText } from './structured-queued-edit.test-support'
+import { harness, begin, message, script, withText } from './structured-queued-edit.test-fixture'
 import { countedQueuedEditPublication } from '../../../../shared/queued-edit-publication.test-fixture'
 import * as publication from '../../../../shared/queued-message-edit-publication'
 import * as eligibility from '../../../../shared/queued-message-edit-command'

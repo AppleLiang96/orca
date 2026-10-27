@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { queuedEditHost } from '../../../src/shared/queued-edit-host.test-fixture'
 import type { AgentSessionQueuedMessageEditHoldResult } from '../../../src/shared/agent-session-wire'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
-import { mobileQueuedEditHarness, readOrHoldReply } from './mobile-queued-edit-hook.test-support'
+import { mobileQueuedEditHarness, readOrHoldReply } from './mobile-queued-edit-hook.test-fixture'
 import {
   fieldsOf,
   mutationOk,

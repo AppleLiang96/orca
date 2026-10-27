@@ -7,19 +7,19 @@ import {
 import {
   updateMobileNativeChatDraftInputs,
   mobileNativeChatDraftDestination,
-  captureMobileNativeChatTextDestination
+  captureMobileNativeChatTextDestination,
+  readMobileNativeChatDraftInputs
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
 import { useMobileNativeChatFileAttachments } from './native-chat/composer/use-mobile-native-chat-file-attachments'
 import { useMobileNativeChatImageAttachments } from './native-chat/composer/use-mobile-native-chat-image-attachments'
 import { act } from 'react-test-renderer'
 import { describe, expect, it, vi } from 'vitest'
-import { mobileQueuedEditHarness, readOrHoldReply } from './mobile-queued-edit-hook.test-support'
+import { mobileQueuedEditHarness, readOrHoldReply } from './mobile-queued-edit-hook.test-fixture'
 import { MobileQueuedMessageComposerContext } from './mobile-queued-message-composer-context'
 import { MobileNativeChatQueuedMessages } from './native-chat/input/MobileNativeChatQueuedMessages'
 import { MobileNativeChatComposer } from './native-chat/composer/MobileNativeChatComposer'
 import { MobileNativeChatComposerMenu } from './native-chat/composer/MobileNativeChatComposerMenu'
 import { MobileQueuedMessageComposer } from './MobileQueuedMessageComposer'
-import { readMobileNativeChatDraftInputs } from './native-chat/composer/mobile-native-chat-draft-inputs'
 import { queuedEditHost } from '../../../src/shared/queued-edit-host.test-fixture'
 import { queuedMessageWithEdit } from '../../../src/shared/queued-message-edit'
 import {

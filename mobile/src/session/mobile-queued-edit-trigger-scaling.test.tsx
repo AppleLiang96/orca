@@ -1,4 +1,4 @@
-import { mobileQueuedEditHarness, withText } from './mobile-queued-edit-hook.test-support'
+import { mobileQueuedEditHarness, withText } from './mobile-queued-edit-hook.test-fixture'
 import { countedQueuedEditPublication } from '../../../src/shared/queued-edit-publication.test-fixture'
 import * as publication from '../../../src/shared/queued-message-edit-publication'
 import * as eligibility from '../../../src/shared/queued-message-edit-command'

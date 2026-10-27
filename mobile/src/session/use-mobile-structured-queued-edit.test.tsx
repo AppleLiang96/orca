@@ -25,7 +25,7 @@ import {
   mobileQueuedEditHarness,
   withText,
   readOrHoldReply
-} from './mobile-queued-edit-hook.test-support'
+} from './mobile-queued-edit-hook.test-fixture'
 
 describe('mobile in-place queued Edit', () => {
   const {
