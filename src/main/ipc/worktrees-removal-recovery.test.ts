@@ -54,9 +54,10 @@ vi.mock('electron', async () =>
 vi.mock('../git/worktree', async () =>
   (await import('./worktrees-test-module-mocks')).gitWorktreeModuleMock()
 )
-vi.mock('../git/runner', async () =>
-  (await import('./worktrees-test-module-mocks')).gitRunnerModuleMock()
-)
+vi.mock('../git/runner', async (importOriginal) => ({
+  ...(await importOriginal<typeof gitRunner>()),
+  ...(await import('./worktrees-test-module-mocks')).gitRunnerModuleMock()
+}))
 vi.mock('../git/repo', async () =>
   (await import('./worktrees-test-module-mocks')).gitRepoModuleMock()
 )
@@ -125,6 +126,7 @@ vi.mock('./pty/provider/state-cleanup', async () =>
   (await import('./worktrees-test-module-mocks')).ptyStateCleanupModuleMock()
 )
 
+const actualGitRunner = await vi.importActual<typeof gitRunner>('../git/runner')
 const anyCatalogVersion = { epoch: expect.any(String), sequence: expect.any(Number) }
 
 describe('registerWorktreeHandlers', () => {
@@ -449,8 +451,7 @@ describe('registerWorktreeHandlers', () => {
         expect(join(deep, 'scratch.txt').length).toBeGreaterThan(260)
         expect((await lstat(join(worktreePath, '.git'))).isFile()).toBe(true)
         const admin = (await diskFs.readFile(join(worktreePath, '.git'), 'utf8')).trim().slice(8)
-        const actual = await vi.importActual<typeof gitRunner>('../git/runner')
-        vi.mocked(gitRunner.gitExecFileAsync).mockImplementation(actual.gitExecFileAsync)
+        vi.mocked(gitRunner.gitExecFileAsync).mockImplementation(actualGitRunner.gitExecFileAsync)
         listWorktreesMock.mockImplementation((repo) => readTranslatedWorktreeGraph(repo))
         vi.mocked(removeWorktree).mockImplementation(removeNativeWorktree)
         store.getRepo.mockReturnValue({ ...harnessRepo, path: repoPath, worktreeBaseRef: null })
