@@ -6,7 +6,7 @@ import { nativeChatTerminalWrite } from './mobile-session-write-operations'
 import { reportWorkerTerminalUserInput } from '../terminal/worker-terminal-takeover-report'
 import { openMobileNativeChatSendBudget } from './native-chat/mobile-native-chat-send'
 import { nativeChatStopSendsSecondEscape } from '../../../src/shared/native-chat-agent-support'
-import { NATIVE_CHAT_QUESTION_STEP_MS } from '../../../src/shared/native-chat-answer-stepping'
+import { NATIVE_CHAT_QUESTION_STEP_MS } from '../../../src/shared/native-chat/input/native-chat-answer-stepping'
 
 export function useMobileNativeChatStop(args: {
   client: RpcClient | null
