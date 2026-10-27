@@ -75,22 +75,8 @@ vi.mock('./native-chat/input/MobileNativeChatQuestion', () => ({
 vi.mock('../components/ActionSheetModal', () => ({ ActionSheetModal: 'ActionSheetModal' }))
 
 vi.mock('./native-chat/composer/MobileNativeChatComposer', async () => {
-  const React = await import('react')
-  const { MobileNativeChatStopButton } =
-    await import('./native-chat/input/MobileNativeChatStopButton')
-  return {
-    MobileNativeChatComposer: (props: {
-      onSend: (text: string) => Promise<boolean>
-      disabled?: boolean
-      placeholder?: string
-      stop?: { onStop?: () => void; held: boolean } | null
-    }) =>
-      React.createElement(
-        'Composer',
-        { ...props, accessibilityLabel: 'Send message', onPress: () => props.onSend('hi') },
-        props.stop ? React.createElement(MobileNativeChatStopButton, props.stop) : null
-      )
-  }
+  const { composerStub } = await import('./MobileNativeChatView.render-stubs.test-fixture')
+  return composerStub()
 })
 
 type Overrides = {
@@ -130,7 +116,7 @@ function chatViewElement(overrides: Overrides): ReturnType<typeof createElement>
     getSendCompletionGeneration: () => 0,
     getComposerEditGeneration: () => 0,
     pending: [],
-    composerText: '',
+    draftKey: null,
     onComposerTextChange: vi.fn(),
     ...overrides
   })

@@ -31,7 +31,7 @@ export type MobileNativeChatController = {
   nativeChatAgent: string | null
   chatComposerScopeKey?: string | null
   reportQueuedEditError?: (message: string) => void
-  chatComposerText: string
+  chatDraftKey: string | null
   setChatComposerText: Dispatch<SetStateAction<string>>
   getChatComposerEditGeneration: () => number
   chatPending: MobileNativeChatPendingMessage[]

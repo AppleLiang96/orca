@@ -44,7 +44,7 @@ import { MobileNativeChatLiveLine } from './MobileNativeChatLiveLine'
 import { MobileNativeChatFloatingControls } from './MobileNativeChatFloatingControls'
 import type { PendingNativeChatImage } from './native-chat/composer/mobile-native-chat-image-attachment'
 import {
-  MobileNativeChatComposer,
+  MobileNativeChatDraftComposer,
   type MobileNativeChatStructuredComposer
 } from './native-chat/composer/MobileNativeChatComposer'
 import { MobileNativeChatPromptCard } from './native-chat/input/MobileNativeChatPromptCard'
@@ -96,7 +96,7 @@ type Props = ComposerTrayProps & {
   // Retain local preview URIs after authoritative image messages replace optimistic rows.
   imagePreviewsByMessageId?: Record<string, string[]>
   composerScopeKey?: string | null
-  composerText: string
+  draftKey: string | null
   onComposerTextChange: (text: string) => void
   onAttachImage?: () => void
   attachments?: PendingNativeChatImage[]
@@ -163,7 +163,7 @@ export function MobileNativeChatView({
   getComposerEditGeneration,
   pending,
   imagePreviewsByMessageId,
-  composerText,
+  draftKey,
   composerScopeKey,
   onComposerTextChange,
   onAttachImage,
@@ -376,7 +376,7 @@ export function MobileNativeChatView({
       ) : null}
       {}
       {trayContent}
-      <MobileNativeChatComposer
+      <MobileNativeChatDraftComposer
         draftScopeKey={composerScopeKey}
         onPickSkill={(skill) => {
           if (composerScopeKey) {
@@ -387,7 +387,7 @@ export function MobileNativeChatView({
           }
         }}
         structured={structuredActivityUi ? structuredComposer : null}
-        value={composerText}
+        draftKey={draftKey}
         onChangeText={onComposerTextChange}
         onSend={handleSend}
         sendSurfaceId={sendSurfaceId}

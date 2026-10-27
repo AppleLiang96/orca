@@ -1,6 +1,5 @@
 import { useMobileNativeChatImageAttachments } from './use-mobile-native-chat-image-attachments'
 import {
-  useMobileNativeChatDraft,
   setMobileNativeChatDraftText,
   clearMobileNativeChatDraftForSend,
   readMobileNativeChatDraftEditGeneration
@@ -29,7 +28,10 @@ vi.mock('@react-native-async-storage/async-storage', () => ({
 import { createElement, type ComponentProps } from 'react'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { MobileNativeChatComposer as NativeChatComposer } from './MobileNativeChatComposer'
+import {
+  MobileNativeChatComposer as NativeChatComposer,
+  MobileNativeChatDraftComposer
+} from './MobileNativeChatComposer'
 
 const getNoComposerEditGeneration = () => 0
 
@@ -241,7 +243,6 @@ describe('MobileNativeChatComposer on a structured chat', () => {
         close: () => {}
       }
       function Conversation() {
-        const value = useMobileNativeChatDraft(scope)
         const session = useMobileStructuredAgentSession({
           client,
           sessionId: SESSION_ID,
@@ -253,8 +254,8 @@ describe('MobileNativeChatComposer on a structured chat', () => {
           composerScopeKey: scope,
           onSendError: vi.fn()
         })
-        return createElement(MobileNativeChatComposer, {
-          value,
+        return createElement(MobileNativeChatDraftComposer, {
+          draftKey: scope,
           agent,
           draftScopeKey: scope,
           onChangeText: (text) => setMobileNativeChatDraftText(scope, text),
