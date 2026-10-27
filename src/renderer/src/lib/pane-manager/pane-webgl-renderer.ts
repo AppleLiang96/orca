@@ -274,7 +274,8 @@ export function attachWebgl(pane: ManagedPaneInternal): void {
     pane.webglAddon = addon
     const canvas = getXtermWebglCanvas(addon)
     if (canvas) {
-      releaseWebglCanvasBackingWhileHidden(canvas)
+      // Why: worktree-suspended panes keep their backing so switching worktrees never pays a reallocation.
+      releaseWebglCanvasBackingWhileHidden(canvas, () => pane.webglAttachmentDeferred !== true)
     }
     refreshTerminalAfterWebglAttach(pane)
   } catch (err) {
