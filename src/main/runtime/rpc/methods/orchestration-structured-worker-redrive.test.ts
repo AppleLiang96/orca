@@ -42,7 +42,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   structuredWorkerIdentities.clear()
   state = harness.setup()
-  vi.spyOn(state.runtime, 'ensureStructuredAgentSessionHost').mockResolvedValue(undefined as never)
+  vi.spyOn(state.runtime, 'ensureStructuredAgentSessionHost').mockResolvedValue(undefined)
   const { host, store, acquire } = hostTestState()
   const acquireImpl = acquire.getMockImplementation()
   if (!acquireImpl) {
