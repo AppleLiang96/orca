@@ -3,11 +3,11 @@
 import React, { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Repo } from '../../../../shared/repo-types'
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
-import type { GhAccountBinding } from '../../../../shared/github/account-binding'
-import type { GhAccountBindingInventory } from '../../../../shared/github/auth-types'
-import type * as RepositoryGitHubAccountModule from './repository/identity/repository-github-account'
+import type { Repo } from '../../../../../shared/repo-types'
+import type { GlobalSettings } from '../../../../../shared/global-settings-types'
+import type { GhAccountBinding } from '../../../../../shared/github/account-binding'
+import type { GhAccountBindingInventory } from '../../../../../shared/github/auth-types'
+import type * as RepositoryGitHubAccountModule from './identity/repository-github-account'
 import { RepositoryGitHubAccountSection } from './RepositoryGitHubAccountSection'
 
 const { listAccountsMock, validateBindingMock, storeState } = vi.hoisted(() => {
@@ -27,14 +27,14 @@ vi.mock('@/store/index', () => {
 
 vi.mock('@/runtime/runtime-rpc-client', () => ({ callRuntimeRpc: vi.fn() }))
 
-vi.mock('./repository/identity/repository-github-account', async (importOriginal) => ({
+vi.mock('./identity/repository-github-account', async (importOriginal) => ({
   ...(await importOriginal<typeof RepositoryGitHubAccountModule>()),
   listRepositoryGhBindableAccounts: listAccountsMock,
   validateRepositoryGhAccountBinding: validateBindingMock
 }))
 
 // Radix requires layout APIs; the native select retains the account interaction.
-vi.mock('../ui/select', () => ({
+vi.mock('../../ui/select', () => ({
   Select: ({
     value,
     onValueChange,

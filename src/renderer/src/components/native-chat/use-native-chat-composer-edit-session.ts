@@ -5,7 +5,7 @@ import {
 import { useNativeChatPickerCommandDispatch } from './use-native-chat-picker-command-dispatch'
 import { useCallback, useLayoutEffect, useMemo, type RefObject } from 'react'
 import type { AgentType } from '../../../../shared/agent-status-types'
-import type { NativeChatPickerItem } from '../../../../shared/native-chat-picker-items'
+import type { NativeChatPickerItem } from '../../../../shared/native-chat/input/native-chat-picker-items'
 import { prepareQueuedMessageEditText } from '../../../../shared/queued-message-edit-command'
 import { translate } from '@/i18n/i18n'
 import { registerDictationComposerTarget } from '../dictation/dictation-insertion-target'

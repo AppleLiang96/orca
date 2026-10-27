@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { Trash2 } from 'lucide-react'
-import type { Repo } from '../../../../shared/repo-types'
-import { Button } from '../ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip'
-import { SearchableSetting } from './SearchableSetting'
+import type { Repo } from '../../../../../shared/repo-types'
+import { Button } from '../../ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '../../ui/tooltip'
+import { SearchableSetting } from '../SearchableSetting'
 import { translate } from '@/i18n/i18n'
 
 export function RepositoryRemoveProjectButton({

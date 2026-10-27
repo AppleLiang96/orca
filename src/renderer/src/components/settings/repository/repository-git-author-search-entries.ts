@@ -1,7 +1,7 @@
-import type { Repo } from '../../../../shared/repo-types'
-import type { SettingsSearchEntry } from './settings-search'
+import type { Repo } from '../../../../../shared/repo-types'
+import type { SettingsSearchEntry } from '../settings-search'
 import { translate } from '@/i18n/i18n'
-import { translateSearchKeyword } from './settings-search-keywords'
+import { translateSearchKeyword } from '../settings-search-keywords'
 
 export function getRepositoryGitAuthorSearchEntries(repo: Repo): SettingsSearchEntry[] {
   return [

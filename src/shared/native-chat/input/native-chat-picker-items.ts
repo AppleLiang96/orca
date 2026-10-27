@@ -1,8 +1,8 @@
-import type { DiscoveredSkill, SkillSourceKind } from './skills'
-import { locatedPickerSkill, getSafeSkillName, isTokenSafe } from './native-chat-reported-skill'
+import type { DiscoveredSkill, SkillSourceKind } from '../../skills'
+import { locatedPickerSkill, getSafeSkillName, isTokenSafe } from '../../native-chat-reported-skill'
 import type { NativeChatSessionSkill, SlashCommandSuggestion } from './native-chat-slash-commands'
-import { stripUnsafeDisplayCharacters } from './skill-display-text'
-import { compareBaseSensitivityLocaleText } from './locale-text-collators'
+import { stripUnsafeDisplayCharacters } from '../../skill-display-text'
+import { compareBaseSensitivityLocaleText } from '../../locale-text-collators'
 
 export type NativeChatPickerItem =
   | {
@@ -310,10 +310,3 @@ function comparePickerSkills(
     compareBaseSensitivityLocaleText(a.name, b.name)
   )
 }
-
-export {
-  LEADING_SLASH_TRIGGER,
-  MID_PROMPT_SLASH_TRIGGER,
-  applyPickerSuggestion,
-  matchSkillSigil
-} from './native-chat-picker-triggers'
