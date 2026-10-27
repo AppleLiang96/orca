@@ -2159,6 +2159,7 @@
         "startNewWorkspace": "Start new workspace"
       },
       "NewWorkspaceComposerCard": {
+        "openExistingWorkspace": "Open existing workspace",
         "reuseExistingBranch": "Reuse branch",
         "reuseExistingBranchHint": "Check out the existing branch instead of creating a new one from it.",
         "createMultiple": "Create more",

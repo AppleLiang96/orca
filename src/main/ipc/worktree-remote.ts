@@ -1,3 +1,4 @@
+import { canCheckoutExistingLocalBranch } from '../runtime/runtime-worktree-create-git'
 /* eslint-disable max-lines */
 
 import { selectWorktreeCreateBranchSeed } from '../worktree-create-branch-seed'
@@ -26,7 +27,7 @@ import type {
   WorktreeHeadIdentity
 } from '../../shared/worktree/types'
 import { getPRForBranch } from '../github/client'
-import { listWorktrees, addWorktree, addSparseWorktree } from '../git/worktree'
+import { addWorktree, addSparseWorktree } from '../git/worktree'
 import type { AddWorktreeOptions, AddWorktreeResult } from '../git/worktree'
 import {
   consumePreparedWorktreeCreate,
@@ -446,49 +447,6 @@ async function resolveCreateBranchName(
     ...gitOptions
   })
   return branchNameOverride
-}
-
-function normalizeLocalBranchName(branchName: string | undefined): string {
-  return branchName?.replace(/^refs\/heads\//, '') ?? ''
-}
-
-async function canCheckoutExistingLocalBranch(
-  repoPath: string,
-  branchName: string,
-  baseBranch: string,
-  gitOptions: { wslDistro?: string } = {}
-): Promise<boolean> {
-  let localHead = ''
-  try {
-    const { stdout } = await gitExecFileAsync(
-      ['rev-parse', '--verify', '--quiet', `refs/heads/${branchName}^{commit}`],
-      {
-        cwd: repoPath,
-        ...gitOptions
-      }
-    )
-    localHead = stdout.trim()
-  } catch {
-    return false
-  }
-  if (normalizeLocalBranchName(baseBranch) !== branchName) {
-    if (!localHead) {
-      return false
-    }
-    try {
-      const { stdout } = await gitExecFileAsync(
-        ['rev-parse', '--verify', '--quiet', `${baseBranch}^{commit}`],
-        { cwd: repoPath, ...gitOptions }
-      )
-      if (stdout.trim() !== localHead) {
-        return false
-      }
-    } catch {
-      return false
-    }
-  }
-  const worktrees = await listWorktrees(repoPath, gitOptions)
-  return !worktrees.some((worktree) => normalizeLocalBranchName(worktree.branch) === branchName)
 }
 
 function hasLocalGitOptions(gitOptions: { wslDistro?: string }): boolean {
@@ -1145,18 +1103,18 @@ async function performLocalWorktreeCreate(
   let resolved = false
   let checkoutExistingBranch = false
   let selectedExistingLocalBranchName: string | null = null
-  let selectedRemoteBranchName: string | null = null
+  let selectedReuseBranchName: string | null = null
   let lastBranchConflictKind: 'local' | 'remote' | null = null
   let lastExistingPR: Awaited<ReturnType<typeof getPRForBranch>> | null = null
   let lastExistingReviewNumber: number | null = null
   const shouldRetireGeneratedName =
     args.nameWasGenerated === true && isGeneratedWorktreeCreateName(sanitizedName)
-  if (
-    args.branchIntent === 'open-existing' &&
-    args.branchNameOverride &&
-    !args.pushTarget &&
-    getSelectedReviewBranch(args) === null
-  ) {
+  if (args.branchIntent === 'open-existing') {
+    if (!args.branchNameOverride || args.pushTarget || getSelectedReviewBranch(args)) {
+      throw new Error(
+        'Reuse branch requires an explicit branch selection without a review push target.'
+      )
+    }
     branchName = await resolveCreateBranchName(
       repo.path,
       args.branchNameOverride,
@@ -1165,15 +1123,32 @@ async function performLocalWorktreeCreate(
       username,
       localWorktreeGitOptions
     )
-    const conflict = await getBranchConflictKind(
+    checkoutExistingBranch = await canCheckoutExistingLocalBranch(
       repo.path,
       branchName,
       baseBranch,
-      localWorktreeGitOptions
+      localWorktreeGitOptions,
+      true
     )
-    if (conflict === null) {
-      selectedRemoteBranchName = branchName
+    if (!checkoutExistingBranch) {
+      if (remoteTrackingBase?.branch !== branchName) {
+        throw new Error(
+          `Branch "${branchName}" was not found locally. Select its remote branch again, or turn off Reuse branch.`
+        )
+      }
+      const conflict = await getBranchConflictKind(
+        repo.path,
+        branchName,
+        remoteTrackingBase.ref,
+        localWorktreeGitOptions
+      )
+      if (conflict) {
+        throw new WorktreeCreateCollisionError(
+          `Cannot reuse branch "${branchName}" because its name conflicts with an existing branch. Choose a different branch or turn off Reuse branch.`
+        )
+      }
     }
+    selectedReuseBranchName = branchName
   }
   const pathIsAvailable = (): boolean => {
     worktreePath = ensurePathWithinWorkspace(
@@ -1212,7 +1187,7 @@ async function performLocalWorktreeCreate(
         continue
       }
       attempts += 1
-      if (selectedRemoteBranchName) {
+      if (selectedReuseBranchName) {
         if (pathIsAvailable()) {
           resolved = true
           break
@@ -1244,15 +1219,17 @@ async function performLocalWorktreeCreate(
       const preferExistingBranch = Boolean(
         args.branchNameOverride || selectedExistingLocalBranchName
       )
-      checkoutExistingBranch = preferExistingBranch && (await tryExistingBranch())
+      const allowImplicitReuse = args.branchIntent !== 'create-new'
+      checkoutExistingBranch =
+        allowImplicitReuse && preferExistingBranch && (await tryExistingBranch())
       lastBranchConflictKind = checkoutExistingBranch
         ? null
         : await getBranchConflictKind(
             repo.path,
             branchName,
-            baseBranch,
+            allowImplicitReuse ? baseBranch : undefined,
             localWorktreeGitOptions,
-            preferExistingBranch ? undefined : tryExistingBranch
+            allowImplicitReuse && !preferExistingBranch ? tryExistingBranch : undefined
           )
       if (checkoutExistingBranch && !selectedExistingLocalBranchName) {
         // Path retries must retain the adopted branch.
@@ -1392,6 +1369,9 @@ async function performLocalWorktreeCreate(
   const remoteTrackingBaseOption = remoteTrackingBase ? { remoteTrackingBase } : undefined
   const existingBranchOption = {
     checkoutExistingBranch,
+    ...(args.branchIntent === 'open-existing' && !checkoutExistingBranch
+      ? { trackRemoteBranch: true }
+      : {}),
     ...remoteTrackingBaseOption,
     ...(suggestLocalBaseRefUpdate ? { suggestLocalBaseRefUpdate } : {})
   }
@@ -1400,11 +1380,19 @@ async function performLocalWorktreeCreate(
       ? { ...remoteTrackingBaseOption, suggestLocalBaseRefUpdate }
       : remoteTrackingBaseOption
   )
+  const newBranchOptions =
+    args.branchIntent === 'open-existing'
+      ? addProjectGitOptions(existingBranchOption)
+      : preparedWorktreeOptions
   let addResult: AddWorktreeResult
   try {
     addResult =
       (await timing.time('git_worktree_add', async () => {
-        if (sparseDirectories.length === 0 && !checkoutExistingBranch) {
+        if (
+          sparseDirectories.length === 0 &&
+          !checkoutExistingBranch &&
+          args.branchIntent !== 'open-existing'
+        ) {
           const prepared = await consumePreparedWorktreeCreate({
             repoPath: repo.path,
             workspaceRoot,
@@ -1448,7 +1436,7 @@ async function performLocalWorktreeCreate(
             sparseDirectories,
             baseBranch,
             settings.refreshLocalBaseRefOnWorktreeCreate,
-            preparedWorktreeOptions
+            newBranchOptions
           )
         }
 
@@ -1470,7 +1458,7 @@ async function performLocalWorktreeCreate(
           baseBranch,
           settings.refreshLocalBaseRefOnWorktreeCreate,
           false,
-          preparedWorktreeOptions
+          newBranchOptions
         )
       })) ?? {}
   } catch (error) {
@@ -1533,7 +1521,9 @@ async function performLocalWorktreeCreate(
     ...(args.automationProvenance ? { automationProvenance: args.automationProvenance } : {}),
     ...(args.cliProvenance ? { cliProvenance: args.cliProvenance } : {}),
     baseRef: metadataBaseRef,
-    ...(checkoutExistingBranch ? { preserveBranchOnDelete: true } : {}),
+    ...(checkoutExistingBranch || args.branchIntent === 'open-existing'
+      ? { preserveBranchOnDelete: true }
+      : {}),
     ...(configuredPushTarget ? { pushTarget: configuredPushTarget } : {}),
     ...resolveWorktreeCreateDisplayNameMeta(
       requestedDisplayName,
