@@ -25,7 +25,8 @@ export function repairPaneWebglCanvasDpr(pane: ManagedPane): PaneWebglCanvasDprR
   if (!renderer || !canvas) {
     return 'current'
   }
-  if (!canvas.isConnected) {
+  // A 0x0 backing was collapsed while hidden; xterm's device-pixel observer restores it on reveal.
+  if (!canvas.isConnected || (canvas.width === 0 && canvas.height === 0)) {
     return 'deferred'
   }
   const view = canvas.ownerDocument?.defaultView
