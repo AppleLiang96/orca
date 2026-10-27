@@ -1,5 +1,8 @@
 import { getNativeChatAgentProfile } from '../../../../../src/shared/native-chat-agent-profiles'
-import { setMobileNativeChatDraftText } from './mobile-native-chat-draft-store'
+import {
+  setMobileNativeChatDraftText,
+  useMobileNativeChatDraft
+} from './mobile-native-chat-draft-store'
 import { appendBufferedDictation } from '../../../terminal/terminal-live-dictation-routing'
 import {
   focusMobileNativeChatTextDestination,
@@ -29,7 +32,6 @@ import { keepHeldPressThroughLongPress } from '../../held-press-long-press'
 import { mobileNativeChatComposerShowsStop } from './mobile-native-chat-composer-layout'
 import { MobileNativeChatStopButton } from '../input/MobileNativeChatStopButton'
 import { mobileNativeChatComposerStyles as styles } from './mobile-native-chat-composer-styles'
-import { useMobileNativeChatDraft } from './mobile-native-chat-draft-store'
 
 const NO_FILE_PATHS: string[] = []
 const NO_ATTACHMENTS: PendingNativeChatImage[] = []
