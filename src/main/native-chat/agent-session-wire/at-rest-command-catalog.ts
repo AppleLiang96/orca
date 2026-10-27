@@ -7,11 +7,11 @@ import { atRestCommandContextReady } from './at-rest-command-context'
 
 /** Running chats supply their own lists; rescan resting folders/accounts after this TTL. */
 export const AT_REST_COMMANDS_TTL_MS = 5 * 60_000
-/** Retry failures before the full TTL can hide commands. */
+/** Retry failures before the full TTL can hide commands, but only a few times: a folder that never answers would rescan forever. */
 const FAILED_SCAN_RETRY_MS = 10_000
-/** Overdue scans cannot freeze the menu; cap concurrent hung scans at two. */
-const SCAN_OVERDUE_MS = 30_000
-const MAX_SCANS_IN_FLIGHT = 2
+const MAX_FAILED_SCANS = 3
+/** Long past any TTL, so a shown chat never loses its list to eviction between reads. */
+const EVICT_UNREAD_MS = 60 * 60_000
 /** Phones read once per menu; finish within their request timeout. */
 export const AT_REST_COMMANDS_READ_BUDGET_MS = 10_000
 
@@ -24,10 +24,13 @@ export type AtRestCommandScan = {
 export type AtRestCommandSource = {
   /** Other hosts must scan their own folders. */
   accepts: (record: AgentSessionRecord) => boolean
+  /** Each source bounds its own work; the catalog never starts a second scan for a key. */
   scan: (
     record: AgentSessionRecord,
     cwd: string,
-    isCurrent: () => boolean
+    isCurrent: () => boolean,
+    /** Grows on every retire; sources that cache provider answers reload for a newer one. */
+    generation: number
   ) => Promise<AtRestCommandScan>
   resolveWorkspacePath: (workspaceId: string) => Promise<string>
   label: string
@@ -37,15 +40,14 @@ export type AtRestCommandSource = {
 type Entry = {
   key: string
   workspaceId: string
+  generation: number
   commands?: AgentSessionSlashCommand[]
   fromAgent?: boolean
   /** Failures age the retained answer for earlier retry. */
   scannedAt: number
-  lastStartedAt: number
-  inFlight: number
-  /** Only newer scan results replace retained answers. */
-  started: number
-  kept: number
+  failures: number
+  scanning: boolean
+  lastReadAt: number
   settled: Set<() => void>
 }
 
@@ -53,11 +55,14 @@ type Entry = {
 export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommands {
   private readonly entries = new Map<string, Entry>()
   private readonly listeners = new Set<() => void>()
+  private generation = 0
+  private nextEviction = Number.NEGATIVE_INFINITY
   private disposed = false
 
   constructor(private readonly source: AtRestCommandSource) {}
 
   retireContext = (workspaceId?: string): void => {
+    this.generation += 1
     for (const [key, entry] of this.entries) {
       if (workspaceId !== undefined && entry.workspaceId !== workspaceId) {
         continue
@@ -89,7 +94,7 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
         return undefined
       }
       const remaining = deadline - Date.now()
-      if (entry.inFlight > 0 && remaining > 0) {
+      if (entry.scanning && remaining > 0) {
         await new Promise<void>((resolve) => {
           const done = (): void => {
             clearTimeout(timer)
@@ -119,6 +124,7 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
     if (this.disposed || !this.source.accepts(record)) {
       return undefined
     }
+    const now = this.now()
     const key = JSON.stringify([
       record.provider,
       requireLegacyAgentSessionAccountHome(record.accountHome).path,
@@ -130,55 +136,58 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
       entry = {
         key,
         workspaceId: record.location.workspaceId,
+        generation: this.generation,
         scannedAt: Number.NEGATIVE_INFINITY,
-        lastStartedAt: Number.NEGATIVE_INFINITY,
-        inFlight: 0,
-        started: 0,
-        kept: 0,
+        failures: 0,
+        scanning: false,
+        lastReadAt: now,
         settled: new Set()
       }
       this.entries.set(key, entry)
     }
-    const now = this.now()
-    const due =
-      entry.inFlight === 0
-        ? now - entry.scannedAt >= AT_REST_COMMANDS_TTL_MS
-        : entry.inFlight < MAX_SCANS_IN_FLIGHT && now - entry.lastStartedAt >= SCAN_OVERDUE_MS
-    if (due) {
+    entry.lastReadAt = now
+    this.evictUnread(now)
+    // Readers join the running scan; a slow source must not multiply its own work.
+    if (!entry.scanning && now - entry.scannedAt >= AT_REST_COMMANDS_TTL_MS) {
       this.scanInto(entry, record)
     }
     return entry
   }
 
+  /** Released and closed chats stop being read; drop their entries instead of keeping them forever. */
+  private evictUnread(now: number): void {
+    if (now < this.nextEviction) {
+      return
+    }
+    this.nextEviction = now + AT_REST_COMMANDS_TTL_MS
+    for (const [key, entry] of this.entries) {
+      if (!entry.scanning && now - entry.lastReadAt >= EVICT_UNREAD_MS) {
+        this.entries.delete(key)
+      }
+    }
+  }
+
   private scanInto(entry: Entry, record: AgentSessionRecord): void {
     const isCurrent = (): boolean => !this.disposed && this.entries.get(entry.key) === entry
-    const scan = ++entry.started
-    entry.lastStartedAt = this.now()
-    entry.inFlight += 1
-    const newest = (fromAgent: boolean): boolean => {
-      if (!isCurrent() || scan < entry.kept) {
-        return false
-      }
-      entry.scannedAt = this.now()
-      // Refresh settles even when fallback cannot supersede an agent-provided list.
-      if (entry.fromAgent && !fromAgent) {
-        return false
-      }
-      entry.kept = scan
-      return true
-    }
+    entry.scanning = true
     void (async () => {
       await atRestCommandContextReady()
       const cwd =
         agentSessionPinnedLaunchDirectory(record) ??
         (await this.source.resolveWorkspacePath(record.location.workspaceId))
       return isCurrent()
-        ? this.source.scan(record, cwd, isCurrent)
+        ? this.source.scan(record, cwd, isCurrent, entry.generation)
         : { commands: undefined, fromAgent: false }
     })()
       .then(
         ({ commands, fromAgent }) => {
-          if (!newest(fromAgent)) {
+          if (!isCurrent()) {
+            return
+          }
+          entry.scannedAt = this.now()
+          entry.failures = 0
+          // Refresh settles even when fallback cannot supersede an agent-provided list.
+          if (entry.fromAgent && !fromAgent) {
             return
           }
           entry.fromAgent = fromAgent
@@ -194,16 +203,17 @@ export class AtRestCommandCatalog implements StructuredAgentSessionAtRestCommand
           if (!isCurrent()) {
             return
           }
-          // Retry soon while allowing older in-flight results to arrive.
-          entry.scannedAt = this.now() - AT_REST_COMMANDS_TTL_MS + FAILED_SCAN_RETRY_MS
+          entry.failures += 1
+          entry.scannedAt =
+            entry.failures < MAX_FAILED_SCANS
+              ? this.now() - AT_REST_COMMANDS_TTL_MS + FAILED_SCAN_RETRY_MS
+              : this.now()
           console.warn(`[${this.source.label}] reading the at-rest \`/\` commands failed:`, error)
         }
       )
       .finally(() => {
-        entry.inFlight -= 1
-        if (entry.inFlight === 0) {
-          entry.settled.forEach((done) => done())
-        }
+        entry.scanning = false
+        entry.settled.forEach((done) => done())
       })
   }
 
