@@ -296,8 +296,15 @@ it('direct drops override last focus; background keeps stable focus through disa
     )
   }
   const view = render(<Pane />)
-  const bottom = () => view.getByLabelText<HTMLTextAreaElement>('bottom')
-  const edit = () => view.getByLabelText<HTMLTextAreaElement>('queued-edit:row')
+  const input = (label: string): HTMLTextAreaElement => {
+    const element = view.getByLabelText(label)
+    if (!(element instanceof HTMLTextAreaElement)) {
+      throw new Error('expected composer textarea')
+    }
+    return element
+  }
+  const bottom = () => input('bottom')
+  const edit = () => input('queued-edit:row')
   fireEvent.focus(edit())
   fireDrag(bottom(), 'drop', workspaceDrag())
   expect(bottom().value).toBe('/repo/a.ts')

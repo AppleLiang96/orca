@@ -443,7 +443,7 @@ it('retains re-picked rich identity after unknown proof and saves the whole repl
         'joined',
         structuredAgentSessionSendBody(
           '$review suffix',
-          [{ id: 'new-local', path: '/new.png', previewUri: '/new.png' }],
+          [{ path: '/new.png', previewUri: '/new.png' }],
           [{ name: 'review', path: '/B/SKILL.md' }]
         )
       )

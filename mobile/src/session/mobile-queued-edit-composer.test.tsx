@@ -23,7 +23,7 @@ import { MobileNativeChatQueuedMessages } from './native-chat/input/MobileNative
 import { MobileNativeChatComposer } from './native-chat/composer/MobileNativeChatComposer'
 import { MobileNativeChatComposerMenu } from './native-chat/composer/MobileNativeChatComposerMenu'
 import { MobileQueuedMessageComposer } from './MobileQueuedMessageComposer'
-import { queuedEditHost } from '../../../src/shared/queued-edit-host.test-fixture'
+import type { QueuedEditHostFixtureModule } from '../../../src/shared/queued-edit-host.test-fixture'
 import { queuedMessageWithEdit } from '../../../src/shared/queued-message-edit'
 import {
   mutationOk,
@@ -31,6 +31,14 @@ import {
   SESSION_ID
 } from './use-mobile-structured-agent-session-queued.test-fixture'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
+
+let queuedEditHost: QueuedEditHostFixtureModule['queuedEditHost']
+beforeAll(async () => {
+  const fixtures = await vi.importActual<QueuedEditHostFixtureModule>(
+    '../../../src/main/native-chat/agent-session-journal/queued-edit-host.test-fixture'
+  )
+  queuedEditHost = fixtures.queuedEditHost
+})
 
 const picker = vi.hoisted(() => ({ pickFiles: vi.fn(), pickImages: vi.fn() }))
 vi.mock('../platform/media-picker', () => ({ useMediaPicker: () => picker }))

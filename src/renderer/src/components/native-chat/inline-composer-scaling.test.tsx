@@ -106,7 +106,7 @@ it.each([20, 200])(
         registerNativeChatComposerDestination(
           other,
           {
-            get current() {
+            get current(): NativeChatComposerHandle | null {
               throw new Error('unrelated handle read')
             }
           },
@@ -220,7 +220,7 @@ it.each([20, 200])(
         registerNativeChatComposerDestination(
           other,
           {
-            get current() {
+            get current(): NativeChatComposerHandle | null {
               throw new Error('unrelated handle read')
             }
           },

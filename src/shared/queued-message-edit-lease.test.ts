@@ -1,10 +1,18 @@
-import { afterEach, expect, it, vi } from 'vitest'
+import { beforeAll, afterEach, expect, it, vi } from 'vitest'
 import { startQueuedEditLease, QUEUED_EDIT_LEASE_RENEW_MS } from './queued-message-edit-lease'
-import { queuedEditHost } from './queued-edit-host.test-fixture'
+import type { QueuedEditHostFixtureModule } from './queued-edit-host.test-fixture'
 import type {
   AgentSessionQueuedMessageEditHoldParams,
   AgentSessionQueuedMessageEditHoldResult
 } from './agent-session-wire'
+
+let queuedEditHost: QueuedEditHostFixtureModule['queuedEditHost']
+beforeAll(async () => {
+  const fixtures = await vi.importActual<QueuedEditHostFixtureModule>(
+    '../main/native-chat/agent-session-journal/queued-edit-host.test-fixture'
+  )
+  queuedEditHost = fixtures.queuedEditHost
+})
 
 const message = {
   messageId: 'card',

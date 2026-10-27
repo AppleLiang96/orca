@@ -13,11 +13,19 @@ import {
   type Outcome
 } from './structured-queued-edit.test-fixture'
 import { act, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
-import { queuedEditHost } from '../../../../shared/queued-edit-host.test-fixture'
+import type { QueuedEditHostFixtureModule } from '../../../../shared/queued-edit-host.test-fixture'
 import type { AgentSessionQueuedMessageEditHoldResult } from '../../../../shared/agent-session-wire'
 import { readNativeChatDraftCache, writeNativeChatDraftCache } from './native-chat-draft-cache'
+
+let queuedEditHost: QueuedEditHostFixtureModule['queuedEditHost']
+beforeAll(async () => {
+  const fixtures = await vi.importActual<QueuedEditHostFixtureModule>(
+    '../../../../main/native-chat/agent-session-journal/queued-edit-host.test-fixture'
+  )
+  queuedEditHost = fixtures.queuedEditHost
+})
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 function deferred<T>() {
@@ -156,7 +164,7 @@ describe('current desktop reacquisition and Save share the outcome owner', () =>
       mode === 'refused' ||
       mode === 'depart'
     ) {
-      if (mode !== 'depart' && mode !== 'depart-equal') {
+      if (mode !== 'depart') {
         expect(hook.result.current.editor).toBeUndefined()
       }
       expect(readNativeChatDraftCache(SCOPE)).toBe(
@@ -272,7 +280,10 @@ it.each(['gone', 'held'] as const)(
         if (params.action === 'release') {
           return { status: 'released' }
         }
-        return host.acquire(params.editId, params.expectedBodyFingerprint ?? '')
+        return host.acquire(
+          params.editId,
+          params.action === 'acquire' ? (params.expectedBodyFingerprint ?? '') : ''
+        )
       })
       .mockRejectedValueOnce(new Error('offline'))
     const hook = harness()

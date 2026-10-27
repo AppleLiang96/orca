@@ -74,8 +74,8 @@ it.each([10, 100])(
       dispatchCommand: async () => ({ handled: false, accepted: false, error: null }),
       optionsSurface: {
         getSnapshot: () => [],
-        setOption: async () => true,
-        invokeAction: async () => true,
+        setOption: async () => ({ snapshot: [] }),
+        invokeAction: async () => ({ snapshot: [] }),
         subscribe: () => () => {}
       },
       optionSnapshot: [],

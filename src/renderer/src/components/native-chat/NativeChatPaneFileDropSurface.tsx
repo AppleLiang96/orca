@@ -14,7 +14,8 @@ import { createOsFileDropSequence, useOsFileDropOwner } from '@/hooks/use-os-fil
 import { getNativeFileDropRejectionMessage } from '@/lib/native-file-drop-rejection-message'
 import {
   makeNativeChatPaneFileDropHandlers,
-  type NativeChatPaneDropClaim
+  type NativeChatPaneDropClaim,
+  type CapturedNativeChatDrop
 } from './native-chat-pane-file-drop'
 
 /** Read the mounted composer’s claim at event time so guard changes apply to the current drag. */
@@ -84,7 +85,7 @@ export function NativeChatPaneFileDropSurface({
   const [isDragActive, setIsDragActive] = useState(false)
   const ownerRef = useRef<HTMLElement | null>(null)
   const [sequence] = useState(createOsFileDropSequence)
-  const attachOwner = useOsFileDropOwner(ownerRef, {
+  const attachOwner = useOsFileDropOwner<CapturedNativeChatDrop | undefined>(ownerRef, {
     consumer: (destination) => destination?.preparationConsumer ?? 'agent',
     // A paired server's chat uploads the bytes; any other owner refuses with a notice.
     acceptsBrowserFiles: true,

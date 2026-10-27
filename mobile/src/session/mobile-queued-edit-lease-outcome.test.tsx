@@ -5,8 +5,8 @@ import {
   updateMobileNativeChatDraftInputs
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
 import { act } from 'react-test-renderer'
-import { describe, expect, it, vi } from 'vitest'
-import { queuedEditHost } from '../../../src/shared/queued-edit-host.test-fixture'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import type { QueuedEditHostFixtureModule } from '../../../src/shared/queued-edit-host.test-fixture'
 import type { AgentSessionQueuedMessageEditHoldResult } from '../../../src/shared/agent-session-wire'
 import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 import { mobileQueuedEditHarness, readOrHoldReply } from './mobile-queued-edit-hook.test-fixture'
@@ -17,6 +17,14 @@ import {
   queuedDraft,
   SESSION_ID
 } from './use-mobile-structured-agent-session-queued.test-fixture'
+
+let queuedEditHost: QueuedEditHostFixtureModule['queuedEditHost']
+beforeAll(async () => {
+  const fixtures = await vi.importActual<QueuedEditHostFixtureModule>(
+    '../../../src/main/native-chat/agent-session-journal/queued-edit-host.test-fixture'
+  )
+  queuedEditHost = fixtures.queuedEditHost
+})
 
 function deferred<T>() {
   let resolve!: (value: T) => void

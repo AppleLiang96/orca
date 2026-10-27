@@ -19,11 +19,14 @@ import {
   type Outcome
 } from './structured-queued-edit.test-fixture'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { toast } from 'sonner'
-import { queuedMessageUpdateDecision } from '../../../../main/native-chat/agent-session-journal/queued-message-update'
+import type { QueuedEditHostFixtureModule } from '../../../../shared/queued-edit-host.test-fixture'
 import { agentSessionSendBodyFingerprint } from '../../../../shared/structured-agent-session-send-mutation'
-import type { AgentSessionQueuedMessageEditHoldResult } from '../../../../shared/agent-session-wire'
+import type {
+  AgentSessionQueuedMessage,
+  AgentSessionQueuedMessageEditHoldResult
+} from '../../../../shared/agent-session-wire'
 import { captureInsertionTarget, insertText } from '../dictation/dictation-insertion-target'
 import { useStructuredAgentSessionQueuedEdit } from './use-structured-agent-session-queued-edit'
 import { projectQueuedMessageCards } from './structured-agent-session-queued-cards'
@@ -37,6 +40,13 @@ import {
   readNativeChatDraftCache,
   writeNativeChatDraftCache
 } from './native-chat-draft-cache'
+let queuedMessageUpdateDecision: QueuedEditHostFixtureModule['queuedMessageUpdateDecision']
+beforeAll(async () => {
+  const fixtures = await vi.importActual<QueuedEditHostFixtureModule>(
+    '../../../../main/native-chat/agent-session-journal/queued-edit-host.test-fixture'
+  )
+  queuedMessageUpdateDecision = fixtures.queuedMessageUpdateDecision
+})
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 describe('inline queued editor', () => {
   it('holds the card on its host, saves against the full body, and leaves the chat box alone', async () => {
@@ -216,9 +226,9 @@ describe('inline queued editor', () => {
     expect(readNativeChatDraftCache(SCOPE)).toBe('')
     hook.rerender({ messages: [withText('saved')] })
     expect(hook.result.current.editor!.text).toBe('saved plus unsaved')
-    expect(holdCalls('acquire').at(-1)![2].expectedBodyFingerprint).toBe(
-      agentSessionSendBodyFingerprint(SESSION, withText('saved').body)
-    )
+    expect(holdCalls('acquire').at(-1)![2]).toMatchObject({
+      expectedBodyFingerprint: agentSessionSendBodyFingerprint(SESSION, withText('saved').body)
+    })
   })
 
   it('a refused Save says why once and keeps the editor', async () => {
@@ -550,11 +560,10 @@ it.each(['updated', 'not-editable', 'clean-gone', 'cancel'] as const)(
       await act(async () =>
         reply!({
           kind: 'done',
-          value: {
-            status: outcome,
-            messageId: 'card',
-            ...(outcome === 'updated' ? { fingerprint: requestedFingerprint() } : {})
-          }
+          value:
+            outcome === 'updated'
+              ? { status: outcome, messageId: 'card', fingerprint: requestedFingerprint() }
+              : { status: outcome, messageId: 'card' }
         })
       )
       if (outcome === 'not-editable') {
