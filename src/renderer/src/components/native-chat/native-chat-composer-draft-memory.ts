@@ -125,13 +125,16 @@ export function clearDraftMemoryForTests(): void {
   load.deletionsBeforeLoad.length = 0
 }
 
+export type NativeChatDraftAppend =
+  | NativeChatComposerDraftAddition
+  | ((draft: NativeChatComposerDraft) => NativeChatComposerDraft)
 const appendListeners = new Map<
   string,
-  Set<(addition: NativeChatComposerDraftAddition, previous: NativeChatComposerDraft) => void>
+  Set<(addition: NativeChatDraftAppend, previous: NativeChatComposerDraft) => void>
 >()
 export function subscribeToNativeChatComposerDraftAppend(
   scope: string,
-  listener: (addition: NativeChatComposerDraftAddition, previous: NativeChatComposerDraft) => void
+  listener: (addition: NativeChatDraftAppend, previous: NativeChatComposerDraft) => void
 ): () => void {
   const scoped = appendListeners.get(scope) ?? new Set()
   appendListeners.set(scope, scoped)
@@ -146,7 +149,7 @@ export function subscribeToNativeChatComposerDraftAppend(
 
 export function notifyDraftAppend(
   scope: string,
-  addition: NativeChatComposerDraftAddition,
+  addition: NativeChatDraftAppend,
   previous: NativeChatComposerDraft
 ): void {
   appendListeners.get(scope)?.forEach((listener) => listener(addition, previous))

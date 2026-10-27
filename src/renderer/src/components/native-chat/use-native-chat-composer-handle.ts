@@ -49,6 +49,7 @@ export function useNativeChatComposerHandle(
   useImperativeHandle(
     ref,
     () => ({
+      isComposing,
       focus,
       insertTypedText,
       acceptsText,
@@ -58,6 +59,7 @@ export function useNativeChatComposerHandle(
       contains
     }),
     [
+      isComposing,
       focus,
       insertTypedText,
       acceptsText,

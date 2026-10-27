@@ -132,3 +132,27 @@ describe('narrowedMenuItems', () => {
     expect(narrowedMenuItems(commandsOnly, 'skill')).toEqual(commandsOnly)
   })
 })
+
+it('keeps edit-valid provider commands and namesake skills without changing the ordinary catalog', () => {
+  const input = {
+    agent: 'claude',
+    structured: {
+      reported: [
+        { name: 'model', kind: 'skill' as const, path: '/model/SKILL.md' },
+        { name: 'review', kind: 'command' as const },
+        { name: 'goal', kind: 'command' as const }
+      ],
+      conversationCommands: ['clear' as const, 'compact' as const]
+    },
+    query: ''
+  }
+  const ordinary = mobileComposerSlashItems(input)
+  const editing = mobileComposerSlashItems({ ...input, editing: true })
+  expect(editing.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
+    'command:review',
+    'command:goal',
+    'skill:model'
+  ])
+  expect(ordinary.map(({ name }) => name)).toContain('compact')
+  expect(ordinary.map(({ kind, name }) => `${kind}:${name}`)).toContain('command:model')
+})

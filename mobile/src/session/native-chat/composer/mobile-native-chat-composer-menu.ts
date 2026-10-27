@@ -6,6 +6,7 @@ import {
   type NativeChatPickerItem
 } from '../../../../../src/shared/native-chat-picker-items'
 import { sessionReportedSkills } from '../../../../../src/shared/native-chat-slash-commands'
+import { queuedMessageEditAcceptsText } from '../../../../../src/shared/queued-message-edit-command'
 import { structuredSessionSlashCommands } from '../../../../../src/shared/structured-agent-session-composer'
 import { getMobileNativeChatCommands } from '../mobile-native-chat-send-classification'
 
@@ -23,11 +24,12 @@ type SlashMenuInput = {
   agent: string | null
   structured: MobileComposerStructuredCatalog | undefined
   query: string
+  editing?: boolean
 }
 
 // Structured chats use reported commands/skills; terminal-backed chats retain curated commands without skills.
 function slashItems(
-  { agent, structured, query }: SlashMenuInput,
+  { agent, structured, query, editing }: SlashMenuInput,
   limit: number
 ): NativeChatPickerItem[] {
   if (!agent) {
@@ -43,7 +45,9 @@ function slashItems(
     query,
     getNativeChatAgentProfile(agent)?.skillPrefix ?? '/',
     reported ? sessionReportedSkills(reported) : [],
-    limit
+    limit,
+    '/',
+    editing ? (name) => queuedMessageEditAcceptsText(`/${name}`, agent, reported) : undefined
   )
 }
 

@@ -10,7 +10,6 @@ import { useNativeChatDraftEvents } from './use-native-chat-draft-events'
 import { useNativeChatComposerRecall } from './use-native-chat-composer-recall'
 import { useNativeChatLaunchDraftAdoption } from './use-native-chat-launch-draft-adoption'
 import { NativeChatComposerField } from './NativeChatComposerField'
-import type { NativeChatResolvedTarget } from './native-chat-composer-target'
 import { useNativeChatComposerAttachments } from './use-native-chat-composer-attachments'
 import { nativeChatImageSendBlock } from './native-chat-image-reattach'
 import { useNativeChatComposerHandle } from './use-native-chat-composer-handle'
@@ -106,6 +105,7 @@ export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, Nativ
       : [targetPtyId !== null, targetPtyId === null || !canSend || inputOwnedByCard]
 
     const { picker, resume } = useNativeChatComposerCommandPicker({
+      editing: editSession !== undefined,
       agent,
       terminalTabId,
       draftScopeKey: paneKey,
@@ -133,7 +133,7 @@ export const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, Nativ
       structuredWorktreeId: structuredTransport?.worktreeId
     })
 
-    const resolveTarget = useCallback((): NativeChatResolvedTarget | null => {
+    const resolveTarget = useCallback(() => {
       if (!targetPtyId) {
         return null
       }

@@ -77,12 +77,13 @@ describe('queued phone composer action boundary', () => {
     const composer = findByHostType(renderer!.root, 'Composer')
     await act(async () => {
       expect(await composer.props.onSend('/compact')).toBe(false)
-      expect(await composer.props.onSend('/goal research')).toBe(false)
+      expect(await composer.props.onSend('/goal research')).toBe(true)
       expect(composer.props.editSession.refuseCommand('/resume')).toBe(true)
     })
-    expect(save).not.toHaveBeenCalled()
+    expect(save).toHaveBeenCalledOnce()
+    save.mockClear()
     expect(client.sendRequest).not.toHaveBeenCalled()
-    expect(onError).toHaveBeenCalledTimes(3)
+    expect(onError).toHaveBeenCalledTimes(2)
     act(() => composer.props.onPickSkill({ name: 'review', path: '/remote/SKILL.md' }))
     expect(readMobileNativeChatDraftInputs('edit').skills).toEqual([
       { name: 'review', path: '/remote/SKILL.md' }

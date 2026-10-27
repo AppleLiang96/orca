@@ -1,11 +1,22 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createMobileQueuedEdit } from './mobile-queued-message-edit-open'
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import type { AgentSessionQueuedMessageUpdateResult } from '../../../src/shared/agent-session-wire'
 import { agentSessionSendBodyFingerprint } from '../../../src/shared/structured-agent-session-send-mutation'
+import { queuedMessageWithEdit } from '../../../src/shared/queued-message-edit'
 import {
-  queuedMessageEditableText,
-  queuedMessageWithEdit
-} from '../../../src/shared/queued-message-edit'
-import { createUuidV4 } from '../../../src/shared/uuid-v4'
+  mobileQueuedEditValueKey,
+  snapshotMobileQueuedEditInputs
+} from './mobile-queued-message-edit-value'
+import { settleMobileQueuedEdit } from './mobile-queued-message-edit-outcome'
+import { queuedEditPublicationKey } from '../../../src/shared/queued-message-edit-publication'
 import { startMobileQueuedEditLease } from './mobile-queued-message-edit-lease'
 import {
   useMobileNativeChatDraftInputs,
@@ -14,10 +25,8 @@ import {
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
 import {
   closeMobileQueuedEditDraft,
-  retainMobileQueuedEditAfterSubmission,
-  mobileQueuedEditSubmissionPublished,
+  mobileQueuedEditSaving,
   insertMobileQueuedEditDictation,
-  seedMobileQueuedEditInputs,
   serializeMobileQueuedEdit,
   mobileQueuedEditSaveHeld,
   removeMobileQueuedEditImage,
@@ -28,7 +37,7 @@ import {
 export type { MobileQueuedMessageInlineEditor } from './mobile-queued-message-edit-draft'
 
 export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditArgs) {
-  const { sessionKey, sessionId, client, enabled, mutate, onSendError, onActionResolved } = args
+  const { sessionKey, sessionId, client, mutate, onSendError, onActionResolved } = args
   const active = useRef<Edit | null>(null)
   const [shown, setShown] = useState<Edit | null>(null)
   const latest = useRef(args)
@@ -36,7 +45,11 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
     latest.current = args
     const edit = active.current
     if (edit?.scope === args.sessionKey) {
-      edit.published = { messages: args.messages, submissions: args.submissions ?? [] }
+      edit.published = {
+        messages: args.messages,
+        submissions: args.submissions ?? [],
+        cards: args.cards
+      }
     }
   })
   useMobileNativeChatDraftInputs(shown?.scopeKey ?? null)
@@ -54,12 +67,72 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
     [render]
   )
 
-  const accepted = useCallback(
-    (edit: Edit) => {
-      retainMobileQueuedEditAfterSubmission(edit)
-      close(edit, true)
+  const acquire = useCallback(
+    (edit: Edit, initial = false) => {
+      if (!initial) {
+        edit.lease.end()
+      }
+      const lease = initial
+        ? edit.lease
+        : startMobileQueuedEditLease({
+            getClient: () =>
+              latest.current.sessionKey === edit.scope ? latest.current.client : edit.client,
+            sessionId: edit.sessionId,
+            messageId: edit.messageId,
+            expectedBodyFingerprint: edit.fingerprint
+          })
+      edit.lease = lease
+      void lease.acquired.then(
+        (answer) => {
+          if (edit.closed || edit.lease !== lease || active.current !== edit) {
+            return
+          }
+          if (
+            answer.status === 'gone' ||
+            answer.status === 'changed' ||
+            answer.status === 'not-editable'
+          ) {
+            close(edit, true)
+          }
+        },
+        () => undefined
+      )
     },
     [close]
+  )
+  const settle = useCallback(
+    (
+      edit: Edit,
+      attempt = edit.attempt,
+      result?: Awaited<ReturnType<typeof mutate<AgentSessionQueuedMessageUpdateResult>>>
+    ) => {
+      if (edit.closed || edit.attempt !== attempt) {
+        return false
+      }
+      const outcome = settleMobileQueuedEdit(edit, attempt, result)
+      if (outcome === 'close') {
+        close(edit, true)
+        if (!edit.pendingClose) {
+          onActionResolved?.()
+        }
+        return true
+      }
+      if (outcome === 'rebase') {
+        acquire(edit)
+      } else if (outcome === 'gone' || outcome === 'changed' || edit.pendingClose) {
+        // A restored seed is still intent if an earlier write remains uncertain or a rival changed it.
+        edit.uncertain ||= outcome === 'changed'
+        close(edit, true)
+        return false
+      } else if (outcome === 'refused' && result?.status === 'accepted') {
+        onSendError("This message can't be edited.")
+      }
+      if (active.current === edit) {
+        render(edit)
+      }
+      return false
+    },
+    [acquire, close, onActionResolved, onSendError, render]
   )
 
   useEffect(
@@ -69,7 +142,7 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
         return
       }
       // A submitted snapshot owns its reply even across navigation; no publication duplicates it.
-      if (edit.saving) {
+      if (mobileQueuedEditSaving(edit)) {
         edit.pendingClose = true
         active.current = null
         return
@@ -81,85 +154,27 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
 
   const begin = useCallback(
     async (messageId: string): Promise<boolean> => {
-      if (active.current || !enabled || !client || !sessionId) {
+      if (active.current) {
         return false
       }
-      const message = args.messages?.find((entry) => entry.messageId === messageId)
-      const text = message ? queuedMessageEditableText(message.body) : null
-      if (!message || text === null) {
-        return false
-      }
-      const fingerprint = agentSessionSendBodyFingerprint(sessionId, message.body)
-      const scopeKey = `queued-edit:${createUuidV4()}`
-      seedMobileQueuedEditInputs(scopeKey, message.body)
-      const edit: Edit = {
-        scope: sessionKey,
-        client,
-        sessionId,
-        published: { messages: args.messages, submissions: args.submissions ?? [] },
-        scopeKey,
-        destination: args.composerScopeKey ?? null,
-        handBackText: args.appendComposerText,
+      const edit = createMobileQueuedEdit(
+        { ...latest.current, sessionKey, sessionId, client },
         messageId,
-        body: message.body,
-        text,
-        fingerprint,
-        saving: false,
-        closed: false,
-        handedBack: false,
-        pendingClose: false,
-        lease: startMobileQueuedEditLease({
-          getClient: () =>
-            latest.current.sessionKey === sessionKey ? latest.current.client : client,
-          sessionId,
-          messageId,
-          expectedBodyFingerprint: fingerprint
-        })
+        () => (latest.current.sessionKey === sessionKey ? latest.current.client : client)
+      )
+      if (!edit) {
+        return false
       }
       render(edit)
-      void edit.lease.acquired.then(
-        (answer) => {
-          if (edit.closed || edit.saving) {
-            return
-          }
-          if (answer.status === 'gone' || answer.status === 'changed') {
-            close(edit, true)
-          } else if (answer.status === 'not-editable') {
-            onSendError("This message can't be edited.")
-            close(edit, true)
-          }
-        },
-        () => undefined
-      )
+      acquire(edit, true)
       return true
     },
-    [
-      args.appendComposerText,
-      args.composerScopeKey,
-      args.messages,
-      client,
-      close,
-      enabled,
-      onSendError,
-      render,
-      sessionId,
-      sessionKey
-    ]
+    [client, acquire, render, sessionId, sessionKey]
   )
 
-  const change = useCallback(
-    (text: string) => {
-      const edit = active.current
-      if (edit && !edit.saving) {
-        edit.text = text
-        render(edit)
-      }
-    },
-    [render]
-  )
   const save = useCallback(async (): Promise<boolean> => {
     const edit = active.current
-    if (!edit || edit.saving || !sessionId) {
+    if (!edit || mobileQueuedEditSaving(edit) || !sessionId) {
       return false
     }
     if (mobileQueuedEditSaveHeld(edit, args.imagesCapable)) {
@@ -170,92 +185,74 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
     if (!desired.ok) {
       return false
     }
-    const fingerprint = agentSessionSendBodyFingerprint(sessionId, desired.body)
-    if (fingerprint === edit.fingerprint) {
-      accepted(edit)
+    if (
+      !edit.uncertain &&
+      !edit.attempt &&
+      mobileQueuedEditValueKey(edit.text, readMobileNativeChatDraftInputs(edit.scopeKey)) ===
+        edit.baseKey
+    ) {
+      close(edit, true)
+      onActionResolved?.()
       return true
     }
-    edit.saving = true
-    edit.submitted = {
-      fingerprint,
+    const attempt = {
+      phase: 'pending' as const,
+      expected: edit.fingerprint,
+      fingerprint: agentSessionSendBodyFingerprint(sessionId, desired.body),
+      body: desired.body,
       text: edit.text,
-      inputs: readMobileNativeChatDraftInputs(edit.scopeKey)
+      inputs: snapshotMobileQueuedEditInputs(readMobileNativeChatDraftInputs(edit.scopeKey)),
+      key: mobileQueuedEditValueKey(edit.text, readMobileNativeChatDraftInputs(edit.scopeKey))
     }
+    edit.attempt = attempt
     render(edit)
     const result = await mutate<AgentSessionQueuedMessageUpdateResult>(
       'agentSession.queuedMessageUpdate',
       'agentSession.queuedMessageUpdate',
-      { messageId: edit.messageId, expectedBodyFingerprint: edit.fingerprint, ...fields },
-      () =>
-        !edit.closed &&
-        !edit.pendingClose &&
-        (edit.published.messages === null ||
-          edit.published.messages.some(({ messageId }) => messageId === edit.messageId))
+      { messageId: edit.messageId, expectedBodyFingerprint: attempt.expected, ...fields },
+      () => !edit.closed && !edit.pendingClose
     )
-    edit.saving = false
-    if (result.status === 'accepted') {
-      const status = result.value.status
-      if (status === 'updated' || status === 'unchanged') {
-        accepted(edit)
-        if (!edit.pendingClose) {
-          onActionResolved?.()
-        }
-        return true
-      }
-      if (status === 'gone' || status === 'changed') {
-        close(edit, true)
-        return false
-      }
-      onSendError("This message can't be edited.")
-    } else {
-      const { messages, submissions } = edit.published
-      const message = messages?.find(({ messageId }) => messageId === edit.messageId)
-      if (
-        (message &&
-          agentSessionSendBodyFingerprint(edit.sessionId, message.body) === fingerprint) ||
-        submissions.some(
-          (entry) =>
-            entry.queuedMessageId === edit.messageId && entry.payloadFingerprint === fingerprint
-        )
-      ) {
-        accepted(edit)
-        return true
-      }
-      if (messages !== null && !message) {
-        close(edit, true)
-        return false
-      }
-    }
-    if (edit.pendingClose) {
-      close(edit, true)
-    } else if (active.current === edit) {
-      render(edit)
-    }
-    return false
+    return settle(edit, attempt, result)
   }, [
     args.imagesCapable,
     args.skillsCapable,
-    accepted,
     close,
     mutate,
     onActionResolved,
-    onSendError,
     render,
-    sessionId
+    sessionId,
+    settle
   ])
 
-  useEffect(() => {
+  const publication = useMemo(
+    () =>
+      queuedEditPublicationKey(
+        { messages: args.messages, cards: args.cards, submissions: args.submissions },
+        sessionId ?? '',
+        shown?.messageId
+      ),
+    [args.messages, args.cards, args.submissions, sessionId, shown?.messageId]
+  )
+  const reconcile = useEffectEvent(() => {
     const edit = active.current
-    if (!edit || edit.saving || edit.scope !== sessionKey || args.messages === null) {
+    if (
+      !edit ||
+      mobileQueuedEditSaving(edit) ||
+      edit.scope !== sessionKey ||
+      args.messages === null
+    ) {
       return
     }
-    const message = args.messages.find(({ messageId }) => messageId === edit.messageId)
-    if (mobileQueuedEditSubmissionPublished(edit, message, args.submissions)) {
-      accepted(edit)
-    } else if (!message || !args.cards.some(({ messageId }) => messageId === edit.messageId)) {
+    const onScreen = args.cards.some(({ messageId }) => messageId === edit.messageId)
+    if (!onScreen && !edit.attempt) {
       close(edit, true)
+    } else {
+      settle(edit)
     }
-  }, [args.cards, args.messages, args.submissions, accepted, close, sessionKey])
+  })
+  useEffect(() => {
+    reconcile()
+  }, [publication, sessionKey])
 
   const editing = active.current
   const inputDestination = editing ? mobileNativeChatDraftDestination(editing.scopeKey) : null
@@ -268,7 +265,7 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
           sessionId: shown.sessionId,
           imagesCapable: args.imagesCapable === true,
           text: shown.text,
-          saving: shown.saving,
+          saving: mobileQueuedEditSaving(shown),
           canSave:
             !mobileQueuedEditSaveHeld(shown, args.imagesCapable) &&
             queuedMessageWithEdit(
@@ -285,10 +282,16 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
             }
             return Boolean(inserted)
           },
-          change,
+          change: (text) => {
+            const edit = active.current
+            if (edit && !mobileQueuedEditSaving(edit)) {
+              edit.text = text
+              render(edit)
+            }
+          },
           removeImage: (id) => {
             const edit = active.current
-            if (!edit || edit.saving || !args.imagesCapable) {
+            if (!edit || mobileQueuedEditSaving(edit) || !args.imagesCapable) {
               return
             }
             removeMobileQueuedEditImage(edit, id)
@@ -296,7 +299,7 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
           },
           save,
           cancel: () => {
-            if (active.current && !active.current.saving) {
+            if (active.current && !mobileQueuedEditSaving(active.current)) {
               close(active.current)
             }
           }

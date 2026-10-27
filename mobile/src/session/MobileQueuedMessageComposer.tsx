@@ -9,10 +9,7 @@ import {
   updateMobileNativeChatDraftInputs,
   useMobileNativeChatDraftInputs
 } from './native-chat/composer/mobile-native-chat-draft-inputs'
-import {
-  isStructuredAgentSessionComposerCommand,
-  isStructuredAgentSessionGoalCommand
-} from '../../../src/shared/structured-agent-session-composer'
+import { queuedMessageEditAcceptsText } from '../../../src/shared/queued-message-edit-command'
 import { colors } from '../theme/mobile-theme'
 import { createUuidV4 } from '../../../src/shared/uuid-v4'
 
@@ -51,15 +48,15 @@ export function MobileQueuedMessageComposer({
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
-  const refuseCommand = (text: string): boolean => {
+  const refuseCommand = (text: string, selectedSkill = false): boolean => {
     if (
-      !isStructuredAgentSessionComposerCommand(
+      (selectedSkill &&
+        inputs.skills.some(({ name }) => text === `/${name}` || text.startsWith(`/${name} `))) ||
+      queuedMessageEditAcceptsText(
         text,
         context?.agent ?? 'codex',
         context?.structured?.catalog.reported
-      ) &&
-      !isStructuredAgentSessionGoalCommand(text) &&
-      !/^\/resume(?:\s|$)/i.test(text)
+      )
     ) {
       return false
     }
@@ -78,7 +75,7 @@ export function MobileQueuedMessageComposer({
         agent={context?.agent}
         value={editor.text}
         onChangeText={editor.change}
-        onSend={async (text) => (refuseCommand(text) ? false : editor.save())}
+        onSend={async (text) => (refuseCommand(text, true) ? false : editor.save())}
         editSession={{ cancel: editor.cancel, locked: editor.saving, refuseCommand }}
         sendSurfaceId={editor.scopeKey}
         getSendCompletionGeneration={() => 0}

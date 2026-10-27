@@ -31,8 +31,37 @@ export function NativeChatQueuedMessageComposer({
       return
     }
     composer.current?.focus()
-    row.current?.scrollIntoView?.({ block: 'nearest' })
   }, [editor.acquiring])
+  useLayoutEffect(() => {
+    const element = row.current
+    const list = element?.closest('ul')
+    if (!element || !list) {
+      return
+    }
+    const reveal = (): void => {
+      const bounds = list.getBoundingClientRect()
+      const viewportTop = bounds.top + list.clientTop
+      const viewportBottom = viewportTop + list.clientHeight
+      if (!list.clientHeight) {
+        return
+      }
+      const content = element.getBoundingClientRect()
+      const delta =
+        content.height > list.clientHeight
+          ? content.bottom - viewportBottom
+          : content.top < viewportTop
+            ? content.top - viewportTop
+            : Math.max(0, content.bottom - viewportBottom)
+      if (delta) {
+        list.scrollTop += delta
+      }
+    }
+    reveal()
+    const observer = new ResizeObserver(reveal)
+    observer.observe(element)
+    observer.observe(list)
+    return () => observer.disconnect()
+  }, [])
   return (
     <div ref={row} data-queued-message-editor className="px-2.5 py-1.5">
       <div className="flex min-h-7 items-center gap-1.5 text-xs text-muted-foreground">

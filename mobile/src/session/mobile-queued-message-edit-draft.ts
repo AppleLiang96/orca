@@ -1,6 +1,9 @@
 import type { MobileStructuredAgentMutate } from './use-mobile-structured-agent-mutation'
 import type { MobileQueuedMessageCard } from './mobile-structured-queued-message-cards'
-import { textLeftAfterSubmission } from '../../../src/shared/submitted-draft-text'
+import {
+  mobileQueuedEditValueKey,
+  sameMobileQueuedEditImage
+} from './mobile-queued-message-edit-value'
 import { appendBufferedDictation } from '../terminal/terminal-live-dictation-routing'
 import type {
   MobileNativeChatDraftInputs,
@@ -10,16 +13,11 @@ import type { AgentSessionQueuedMessage } from '../../../src/shared/agent-sessio
 import type { AgentJournalSubmission } from '../../../src/shared/agent-session-journal-types'
 import type { RpcClient } from '../transport/rpc-client'
 import type { MobileQueuedEditLease } from './mobile-queued-message-edit-lease'
-import {
-  pickedSkillsInText,
-  agentSessionSendBodyFingerprint
-} from '../../../src/shared/structured-agent-session-send-mutation'
+import { pickedSkillsInText } from '../../../src/shared/structured-agent-session-send-mutation'
 import {
   queuedEditKeptImages,
-  queuedMessageEditableText,
   queuedEditTextForKeptImages
 } from '../../../src/shared/queued-message-edit'
-import { stripSentImagePromptMarkers } from '../../../src/shared/native-chat-image-transcript-markers'
 import { appendReturnedDraftText } from '../../../src/shared/returned-draft-text'
 import {
   closeMobileNativeChatEditInputs,
@@ -45,11 +43,25 @@ export type MobileQueuedMessageInlineEditor = {
   cancel: () => void
 }
 
+export type MobileQueuedEditAttempt = {
+  phase: 'pending' | 'unknown'
+  expected: string
+  fingerprint: string
+  body: AgentSessionQueuedMessage['body']
+  text: string
+  inputs: MobileNativeChatDraftInputs
+  key: string
+}
+export function mobileQueuedEditSaving(edit: MobileQueuedEditDraft): boolean {
+  return edit.attempt?.phase === 'pending'
+}
+
 export type MobileQueuedEditDraft = {
   scope: string
   client: RpcClient
   sessionId: string
   published: {
+    cards: readonly MobileQueuedMessageCard[]
     messages: readonly AgentSessionQueuedMessage[] | null
     submissions: readonly AgentJournalSubmission[]
   }
@@ -60,14 +72,14 @@ export type MobileQueuedEditDraft = {
   body: AgentSessionQueuedMessage['body']
   text: string
   fingerprint: string
-  saving: boolean
+  baseKey: string
+  kept: {
+    image: MobileNativeChatDraftInputs['images'][number]
+    block: ReturnType<typeof queuedEditKeptImages>[number]['block']
+  }[]
+  uncertain: boolean
+  attempt?: MobileQueuedEditAttempt
   closed: boolean
-  handedBack: boolean
-  submitted?: {
-    fingerprint: string
-    text: string
-    inputs: MobileNativeChatDraftInputs
-  }
   pendingClose: boolean
   lease: MobileQueuedEditLease
 }
@@ -82,42 +94,36 @@ export function closeMobileQueuedEditDraft(
   }
   edit.closed = true
   edit.lease.end()
-  if (handBack && !edit.handedBack) {
+  if (handBack) {
     const inputs = readMobileNativeChatDraftInputs(edit.scopeKey)
-    const dirty =
-      (inputs.pending ?? 0) > 0 ||
-      edit.text !== queuedMessageEditableText(edit.body) ||
-      inputs.files.length > 0 ||
-      inputs.images.map(({ id }) => id).join() !==
-        queuedEditKeptImages(edit.body)
-          .map(({ id }) => id)
-          .join() ||
-      JSON.stringify(pickedSkillsInText(edit.text, inputs.skills)) !==
-        JSON.stringify(
-          pickedSkillsInText(queuedMessageEditableText(edit.body) ?? '', edit.body.skills ?? [])
+    const dirty = edit.uncertain || mobileQueuedEditValueKey(edit.text, inputs) !== edit.baseKey
+    const kept = edit.kept.filter((entry) =>
+      inputs.images.some((image) => sameMobileQueuedEditImage(entry.image, image))
+    )
+    const text = dirty
+      ? queuedEditTextForKeptImages(
+          edit.text,
+          inputs.images.map(({ id }) => id),
+          inputs.images
+            .filter((image) => !kept.some((entry) => sameMobileQueuedEditImage(entry.image, image)))
+            .map(({ id }) => id)
         )
+      : ''
+    if (dirty && edit.destination) {
+      setMobileNativeChatDraftText(edit.destination, (before) =>
+        appendReturnedDraftText(before, text)
+      )
+    } else if (dirty) {
+      edit.handBackText?.(text)
+    }
+    closeMobileNativeChatEditInputs(
+      edit.scopeKey,
+      edit.destination ?? undefined,
+      kept.map(({ image }) => image),
+      !dirty
+    )
     if (dirty) {
-      edit.handedBack = true
-      const textChanged =
-        edit.text !== queuedMessageEditableText(edit.body) ||
-        JSON.stringify(pickedSkillsInText(edit.text, inputs.skills)) !==
-          JSON.stringify(
-            pickedSkillsInText(queuedMessageEditableText(edit.body) ?? '', edit.body.skills ?? [])
-          )
-      const text = textChanged
-        ? stripSentImagePromptMarkers(edit.text, queuedEditKeptImages(edit.body).length)
-        : ''
-      if (edit.destination) {
-        setMobileNativeChatDraftText(edit.destination, (before) =>
-          appendReturnedDraftText(before, text)
-        )
-      } else {
-        edit.handBackText?.(text)
-      }
-      closeMobileNativeChatEditInputs(edit.scopeKey, edit.destination ?? undefined)
       notice?.('Your edit is in the chat box.')
-    } else {
-      closeMobileNativeChatEditInputs(edit.scopeKey, edit.destination ?? undefined)
     }
   } else {
     closeMobileNativeChatEditInputs(edit.scopeKey)
@@ -139,7 +145,7 @@ export function serializeMobileQueuedEdit(
       ? {
           images: inputs.images.map(
             (image) =>
-              queuedEditKeptImages(edit.body).find(({ id }) => id === image.id)?.block ?? {
+              edit.kept.find((entry) => sameMobileQueuedEditImage(entry.image, image))?.block ?? {
                 type: 'image-ref' as const,
                 path: image.path
               }
@@ -173,10 +179,7 @@ export function mobileQueuedEditSaveHeld(
     (inputs.pending ?? 0) > 0 ||
     inputs.files.some(({ path }) => path === null) ||
     (!imagesCapable &&
-      inputs.images.map(({ id }) => id).join() !==
-        queuedEditKeptImages(edit.body)
-          .map(({ id }) => id)
-          .join())
+      JSON.stringify(inputs.images) !== JSON.stringify(edit.kept.map(({ image }) => image)))
   )
 }
 
@@ -193,39 +196,6 @@ export function seedMobileQueuedEditInputs(
       previewUri: block.url ?? block.path ?? ''
     }))
   }))
-}
-
-export function retainMobileQueuedEditAfterSubmission(edit: MobileQueuedEditDraft): void {
-  const sent = edit.submitted
-  if (sent) {
-    const current = readMobileNativeChatDraftInputs(edit.scopeKey)
-    const left = textLeftAfterSubmission(edit.text, sent.text)
-    const changedSkills =
-      edit.text === sent.text &&
-      JSON.stringify(pickedSkillsInText(edit.text, current.skills)) !==
-        JSON.stringify(pickedSkillsInText(sent.text, sent.inputs.skills))
-    if (left && !changedSkills) {
-      edit.text = left.text
-    }
-    const files = new Set(sent.inputs.files.map(({ id }) => id))
-    updateMobileNativeChatDraftInputs(edit.scopeKey, (inputs) => ({
-      ...inputs,
-      images: inputs.images.filter(
-        ({ id }) => !sent.inputs.images.some((image) => image.id === id)
-      ),
-      files: inputs.files.filter(({ id }) => !files.has(id)),
-      skills: pickedSkillsInText(edit.text, inputs.skills)
-    }))
-  } else {
-    edit.text = ''
-    updateMobileNativeChatDraftInputs(edit.scopeKey, (inputs) => ({
-      ...inputs,
-      images: [],
-      files: [],
-      skills: []
-    }))
-  }
-  edit.body = { ...edit.body, blocks: [], skills: undefined }
 }
 
 export function insertMobileQueuedEditDictation(
@@ -263,20 +233,4 @@ export type MobileStructuredQueuedEditArgs = {
   onQueuedEditNotice?: (text: string) => void
   onSendError: (text: string) => void
   onActionResolved?: () => void
-}
-
-export function mobileQueuedEditSubmissionPublished(
-  edit: MobileQueuedEditDraft,
-  message: AgentSessionQueuedMessage | undefined,
-  submissions: readonly AgentJournalSubmission[] | undefined
-): boolean {
-  const fingerprint = edit.submitted?.fingerprint
-  return Boolean(
-    fingerprint &&
-    ((message && agentSessionSendBodyFingerprint(edit.sessionId, message.body) === fingerprint) ||
-      submissions?.some(
-        (entry) =>
-          entry.queuedMessageId === edit.messageId && entry.payloadFingerprint === fingerprint
-      ))
-  )
 }

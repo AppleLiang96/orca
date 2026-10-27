@@ -2,18 +2,12 @@ import { useNativeChatPickerCommandDispatch } from './use-native-chat-picker-com
 import { useCallback, useLayoutEffect, type RefObject } from 'react'
 import type { AgentType } from '../../../../shared/agent-status-types'
 import type { NativeChatPickerItem } from '../../../../shared/native-chat-picker-items'
-import {
-  isStructuredAgentSessionComposerCommand,
-  isStructuredAgentSessionGoalCommand
-} from '../../../../shared/structured-agent-session-composer'
+import { queuedMessageEditAcceptsText } from '../../../../shared/queued-message-edit-command'
 import { translate } from '@/i18n/i18n'
 import { registerDictationComposerTarget } from '../dictation/dictation-insertion-target'
-import {
-  captureNativeChatEditDraftDestination,
-  appendToNativeChatComposerDraft
-} from './native-chat-composer-draft-store'
+import { captureNativeChatEditDraftDestination } from './native-chat-composer-draft-store'
+import { insertNativeChatComposerDraftText } from './native-chat-composer-draft-insertion'
 import { registerNativeChatComposerDestination } from './native-chat-composer-destination'
-import { parseNativeChatResumeDraft } from './use-native-chat-resume-command'
 import type {
   NativeChatComposerProps,
   NativeChatComposerHandle,
@@ -58,10 +52,10 @@ export function useNativeChatComposerEditSession({
   const isEditing = editSession !== undefined
   useLayoutEffect(() => {
     if (root.current && handle.current) {
-      return registerNativeChatComposerDestination(root.current, handle, !isEditing)
+      return registerNativeChatComposerDestination(root.current, handle, !isEditing, draftScopeKey)
     }
     return undefined
-  }, [isEditing, root, handle])
+  }, [isEditing, root, handle, draftScopeKey])
 
   useLayoutEffect(() => {
     const element = root.current
@@ -73,23 +67,16 @@ export function useNativeChatComposerEditSession({
       if (!destination.active) {
         return
       }
-      if (destination.scopeKey === draftScopeKey && handle.current?.insertTypedText(text)) {
-        return
-      }
-      appendToNativeChatComposerDraft(destination.scopeKey, { text })
+      insertNativeChatComposerDraftText(destination.scopeKey, text)
     })
   }, [draftScopeKey, root, handle])
 
   const refuseEditCommand = useCallback(
-    (text: string): boolean => {
+    (text: string, allowPickedSkill = true): boolean => {
       if (
         !editSession ||
-        isPickedSkill(text) ||
-        !(
-          isStructuredAgentSessionComposerCommand(text, agent, sessionCommands) ||
-          (hostSetsGoals && isStructuredAgentSessionGoalCommand(text)) ||
-          parseNativeChatResumeDraft(text) !== null
-        )
+        (allowPickedSkill && isPickedSkill(text)) ||
+        queuedMessageEditAcceptsText(text, agent, sessionCommands, hostSetsGoals)
       ) {
         return false
       }
@@ -114,7 +101,7 @@ export function useNativeChatComposerEditSession({
   }, [disabled, draft, editSession, refuseEditCommand, sendHeld, sendMessage])
   const chooseEditItem = useCallback(
     (item: Parameters<typeof completeItem>[0]) => {
-      if (item.kind === 'command' && refuseEditCommand(`/${item.name}`)) {
+      if (item.kind === 'command' && refuseEditCommand(`/${item.name}`, false)) {
         return
       }
       completeItem(item)

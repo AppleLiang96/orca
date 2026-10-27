@@ -1,3 +1,4 @@
+import { startQueuedEditLease } from '../../../shared/queued-message-edit-lease'
 import { acquired, fakeCodex } from '../../codex/codex-structured-session-adapter-fixture'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -556,4 +557,45 @@ describe('edit leases and automatic delivery', () => {
     expect(await hold(id, 'release')).toEqual({ status: 'released' })
     expect(rig.host.collaboratorsForTests().sessions.get(HOST_TEST_SESSION)).toBeUndefined()
   })
+})
+
+it('real lease replacement survives an old delayed release; delivery may beat later reacquisition', async () => {
+  await rig.workingSend()
+  const id = await queue('base')
+  let releaseOld: (() => Promise<void>) | undefined
+  const request = (editId: string, expectedBodyFingerprint: string, delayRelease = false) =>
+    startQueuedEditLease({
+      sessionId: HOST_TEST_SESSION,
+      messageId: id,
+      editId,
+      expectedBodyFingerprint,
+      request: async (params) => {
+        if (params.action === 'release' && delayRelease) {
+          return new Promise((resolve) => {
+            releaseOld = async () => {
+              resolve(await rig.host.queuedMessageEditHold(QUEUED_RIG_CALLER, params))
+            }
+          })
+        }
+        return rig.host.queuedMessageEditHold(QUEUED_RIG_CALLER, params)
+      }
+    })
+  const old = request('before-commit', fingerprint(id), true)
+  expect(await old.acquired).toMatchObject({ status: 'held' })
+  expect(await update(id, fingerprint(id), 'accepted')).toMatchObject({
+    value: { status: 'updated' }
+  })
+  expect(held()).toEqual([])
+  old.end()
+  const replacement = request('after-proof', fingerprint(id))
+  expect(await replacement.acquired).toMatchObject({ status: 'held' })
+  await eventually(async () => expect(releaseOld).toBeDefined())
+  await releaseOld!()
+  expect(held()).toEqual([id])
+  replacement.end()
+  await eventually(async () => expect(held()).toEqual([]))
+  await rig.sendNow(id)
+  const late = request('delivery-won', fingerprint(id))
+  expect(await late.acquired).toMatchObject({ status: 'gone' })
+  late.end()
 })

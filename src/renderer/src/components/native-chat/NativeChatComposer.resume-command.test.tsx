@@ -11,6 +11,8 @@ type CommandItem = Extract<NativeChatPickerItem, { kind: 'command' }>
 
 type FieldProps = {
   textareaRef: RefObject<HTMLTextAreaElement | null>
+  autocomplete?: { mode: string; items?: NativeChatPickerItem[] }
+  onChooseMentionFile?: (path: string) => void
   onSend?: () => void
   onChoosePickerItem?: (item: NativeChatPickerItem) => void
 }
@@ -39,6 +41,9 @@ vi.mock('../../store', () => {
     activeWorkspaceExecutionHostId: 'ssh:box',
     tabsByWorktree: { 'wt-1': [{ id: 'tab-1' }] },
     unifiedTabsByWorktree: {},
+    worktreesByRepo: {},
+    detectedWorktreesByRepo: {},
+    folderWorkspaces: [],
     clearNativeChatLaunchDraft: vi.fn()
   }
   const useAppStore = (selector: (value: typeof state) => unknown) => selector(state)
@@ -276,5 +281,48 @@ describe('/resume in the native chat composer', () => {
 
     expect(mocks.openHistory).not.toHaveBeenCalled()
     expect(mocks.sendNativeChatTypedCommand).toHaveBeenCalledWith('pty-1', '/resume')
+  })
+
+  it('derives inline catalog from the same action boundary before resolving namesake skills', () => {
+    mocks.draft = '/'
+    const edit: QueuedMessageInlineEditor = {
+      messageId: 'queue',
+      draftScopeKey: 'queued-edit:menu',
+      text: '/',
+      acquiring: false,
+      saving: false,
+      canSave: true,
+      imagesCapable: true,
+      save: vi.fn(),
+      cancel: vi.fn(),
+      change: vi.fn()
+    }
+    const { transport, rerender } = renderStructuredChat(edit)
+    transport.sessionCommands = [
+      { name: 'review', kind: 'command' },
+      { name: 'model', kind: 'skill', path: '/model/SKILL.md' },
+      { name: 'goal', kind: 'command' }
+    ]
+    transport.conversationCommands = ['clear', 'compact']
+    rerender()
+    expect(
+      mocks.fieldProps?.autocomplete?.items?.map(({ kind, name }) => `${kind}:${name}`)
+    ).toEqual(['command:review', 'skill:model'])
+    expect(mocks.openHistory).not.toHaveBeenCalled()
+    // Without a host goal action /goal is valid provider prompt input.
+    delete transport.threadGoal
+    rerender()
+    expect(mocks.fieldProps?.autocomplete?.items?.map(({ name }) => name)).toContain('goal')
+    mocks.draft = '/goal objective'
+    rerender()
+    act(() => mocks.fieldProps?.onSend?.())
+    expect(edit.save).toHaveBeenCalledOnce()
+    expect(transport.send).not.toHaveBeenCalled()
+    expect(transport.dispatchCommand).not.toHaveBeenCalled()
+    mocks.draft = '@src'
+    rerender()
+    expect(mocks.fieldProps?.autocomplete?.mode).toBe('mention')
+    act(() => mocks.fieldProps?.onChooseMentionFile?.('src/file.ts'))
+    expect(mocks.setDraft).toHaveBeenCalledWith(expect.stringContaining('src/file.ts'))
   })
 })

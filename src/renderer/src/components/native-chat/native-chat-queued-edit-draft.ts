@@ -24,7 +24,6 @@ import {
 import {
   clearNativeChatPendingAttachments,
   moveNativeChatPendingAttachments,
-  nativeChatImageRow,
   nativeChatPendingAttachmentSnapshot
 } from './native-chat-pending-attachment-cache'
 import {
@@ -36,7 +35,11 @@ import {
   nativeChatPastedTextAdmission,
   resolveNativeChatPastedText
 } from './native-chat-composer-pasted-text-references'
-import type { NativeChatComposerDraft } from './native-chat-composer-draft-storage'
+import { nativeChatQueuedEditValueKey, sameQueuedEditImage } from './native-chat-queued-edit-value'
+import type {
+  NativeChatComposerDraft,
+  NativeChatComposerDraftImage
+} from './native-chat-composer-draft-storage'
 
 function seedSkills(
   node: JSONContent,
@@ -85,8 +88,11 @@ export type NativeChatQueuedEditDraft = {
   scopeKey: string
   destination: string
   body: AgentJournalMessageItem
+  baseKey: string
   initial: NativeChatComposerDraft
-  kept: ReturnType<typeof queuedEditKeptImages>
+  kept: (ReturnType<typeof queuedEditKeptImages>[number] & {
+    image: NativeChatComposerDraftImage
+  })[]
 }
 
 export function createNativeChatQueuedEditDraft(
@@ -105,7 +111,14 @@ export function createNativeChatQueuedEditDraft(
     images: kept.map(({ id, block }) => ({ id, path: block.path ?? block.url ?? '' }))
   }
   openNativeChatEditDraft(scopeKey, initial)
-  return { scopeKey, destination, body, initial, kept }
+  return {
+    scopeKey,
+    destination,
+    body,
+    baseKey: nativeChatQueuedEditValueKey(scopeKey),
+    initial,
+    kept: kept.map((entry, index) => ({ ...entry, image: initial.images[index] }))
+  }
 }
 
 export function nativeChatQueuedEditInput(
@@ -120,7 +133,7 @@ export function nativeChatQueuedEditInput(
   )
   const images = draft.images.map(
     (image) =>
-      edit.kept.find(({ id }) => id === image.id)?.block ?? {
+      edit.kept.find((entry) => sameQueuedEditImage(entry.image, image))?.block ?? {
         type: 'image-ref' as const,
         path: image.path
       }
@@ -133,14 +146,7 @@ export function nativeChatQueuedEditInput(
 }
 
 export function nativeChatQueuedEditDirty(edit: NativeChatQueuedEditDraft): boolean {
-  const draft = readNativeChatComposerDraft(edit.scopeKey)
-  return (
-    draft.text !== edit.initial.text ||
-    JSON.stringify(draft.images) !== JSON.stringify(edit.initial.images) ||
-    JSON.stringify(pickedSkillsInText(draft.text, promptSkillRefs(draft.document))) !==
-      JSON.stringify(pickedSkillsInText(edit.initial.text, edit.body.skills ?? [])) ||
-    nativeChatPendingAttachmentSnapshot(edit.scopeKey).length > 0
-  )
+  return nativeChatQueuedEditValueKey(edit.scopeKey) !== edit.baseKey
 }
 
 export function nativeChatQueuedEditHeld(
@@ -157,32 +163,31 @@ export function nativeChatQueuedEditHeld(
 }
 
 /** Move only draft-owned additions; card-owned images remain with the accepted message. */
-export function handBackNativeChatQueuedEdit(edit: NativeChatQueuedEditDraft): boolean {
+export function handBackNativeChatQueuedEdit(
+  edit: NativeChatQueuedEditDraft,
+  force = false
+): boolean {
   const draft = readNativeChatComposerDraft(edit.scopeKey)
   let text = draft.text
   let document = draft.document
-  for (const { id } of edit.kept) {
+  const kept = edit.kept.filter((entry) =>
+    draft.images.some((image) => sameQueuedEditImage(entry.image, image))
+  )
+  for (const { id } of kept) {
     text = text.replaceAll(imageReferenceToken(id), '')
     if (document) {
       document = withoutImageReferenceNodes(document, id)
     }
   }
-  const textChanged =
-    draft.text !== edit.initial.text ||
-    JSON.stringify(pickedSkillsInText(draft.text, promptSkillRefs(draft.document))) !==
-      JSON.stringify(pickedSkillsInText(edit.initial.text, edit.body.skills ?? []))
-  if (!textChanged) {
+  const dirty = force || nativeChatQueuedEditDirty(edit)
+  if (!dirty) {
     text = ''
     document = undefined
   }
-  const images = draft.images.filter(({ id }) => !edit.kept.some((kept) => kept.id === id))
+  const images = draft.images.filter(
+    (image) => !kept.some((entry) => sameQueuedEditImage(entry.image, image))
+  )
   const pending = nativeChatPendingAttachmentSnapshot(edit.scopeKey)
-  // Pending markers still belong to the returned draft even if all other text stayed unchanged.
-  if (!textChanged) {
-    text = nativeChatImageRow(images, pending)
-      .map(({ id }) => imageReferenceToken(id))
-      .join(' ')
-  }
   appendToNativeChatComposerDraft(edit.destination, {
     text,
     document,

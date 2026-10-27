@@ -1,3 +1,6 @@
+import { QueuedMessageUpdateParams } from '../../../../shared/rpc-contract/structured-agent-session-queued-edit-params'
+import { queuedMessageWithEdit } from '../../../../shared/queued-message-edit'
+import { queuedMessageUpdateDecision } from '../../../../main/native-chat/agent-session-journal/queued-message-update'
 import { captureInsertionTarget, insertText } from '../dictation/dictation-insertion-target'
 import { useNativeChatComposerEditSession } from './use-native-chat-composer-edit-session'
 import {
@@ -139,7 +142,11 @@ beforeEach(() => {
   vi.mocked(toast.error).mockClear()
   clearNativeChatDraftCacheForTests()
   setNativeChatComposerDraftStorageForTests(createMemoryNativeChatComposerDraftStorage())
-  answer = done({ status: 'updated', messageId: 'card', fingerprint: 'a'.repeat(64) })
+  answer = () =>
+    Promise.resolve({
+      kind: 'done',
+      value: { status: 'updated', messageId: 'card', fingerprint: requestedFingerprint() }
+    })
 })
 afterEach(() => {
   cleanup()
@@ -303,19 +310,26 @@ describe('inline queued editor', () => {
     expect(readNativeChatDraftCache(SCOPE)).toBe('unsaved')
   })
 
-  it('reconciles delayed proof against the submitted snapshot and returns newer typing once', async () => {
+  it('rebases delayed plain proof without trimming the newer replacement', async () => {
     const hook = harness()
     await begin(hook)
     act(() => hook.result.current.editor!.change('saved'))
-    answer = async () => ({ kind: 'unknown', failure: { kind: 'failed' } })
+    answer = async () => ({ kind: 'not-done', notice: 'lost', failure: { kind: 'unconfirmed' } })
     act(() => hook.result.current.editor!.save())
     await waitFor(() => expect(hook.result.current.editor!.saving).toBe(false))
     act(() => hook.result.current.editor!.change('saved plus unsaved'))
     hook.rerender({ messages: [withText('saved')] })
-    expect(hook.result.current.editor).toBeUndefined()
-    expect(readNativeChatDraftCache(SCOPE)).toBe(' plus unsaved')
+    expect(hook.result.current.editor).toMatchObject({
+      text: 'saved plus unsaved',
+      acquiring: false,
+      saving: false
+    })
+    expect(readNativeChatDraftCache(SCOPE)).toBe('')
     hook.rerender({ messages: [withText('saved')] })
-    expect(readNativeChatDraftCache(SCOPE)).toBe(' plus unsaved')
+    expect(hook.result.current.editor!.text).toBe('saved plus unsaved')
+    expect(holdCalls('acquire').at(-1)![2].expectedBodyFingerprint).toBe(
+      agentSessionSendBodyFingerprint(SESSION, withText('saved').body)
+    )
   })
 
   it('a refused Save says why once and keeps the editor', async () => {
@@ -382,7 +396,11 @@ describe('inline queued editor', () => {
   })
 
   describe('a Save whose answer this pane cannot read reads the published card', () => {
-    const dropped: () => Promise<Outcome> = async () => ({ kind: 'dropped' })
+    const dropped: () => Promise<Outcome> = async () => ({
+      kind: 'not-done',
+      notice: 'lost',
+      failure: { kind: 'unconfirmed' }
+    })
     function deferred() {
       let finish: (outcome: Outcome) => void = () => {}
       answer = () =>
@@ -399,7 +417,7 @@ describe('inline queued editor', () => {
       act(() => hook.result.current.editor?.change('saved'))
       act(() => hook.result.current.editor?.save())
       hook.rerender({ messages: [withText('saved')] })
-      await finish({ kind: 'dropped' })
+      await finish({ kind: 'not-done', notice: 'lost', failure: { kind: 'unconfirmed' } })
       expect(hook.result.current.editor).toBeUndefined()
       expect(toast.error).not.toHaveBeenCalled()
       expect(readNativeChatDraftCache(SCOPE)).toBe('')
@@ -470,7 +488,7 @@ describe('inline queued editor', () => {
       act(() => hook.result.current.editor?.save())
       hook.rerender({ messages: [] })
       expect(hook.result.current.editor?.saving).toBe(true)
-      await finish({ kind: 'dropped' })
+      await finish({ kind: 'not-done', notice: 'lost', failure: { kind: 'unconfirmed' } })
       expect(hook.result.current.editor).toBeUndefined()
       expect(readNativeChatDraftCache(SCOPE)).toBe('typed')
       expect(toast.error).toHaveBeenCalledOnce()
@@ -646,7 +664,7 @@ it.each(['updated', 'not-editable', 'clean-gone', 'cancel'] as const)(
           value: {
             status: outcome,
             messageId: 'card',
-            ...(outcome === 'updated' ? { fingerprint: 'f' } : {})
+            ...(outcome === 'updated' ? { fingerprint: requestedFingerprint() } : {})
           }
         })
       )
@@ -657,9 +675,12 @@ it.each(['updated', 'not-editable', 'clean-gone', 'cancel'] as const)(
     act(() => insertText('later', captured))
     if (outcome === 'cancel') {
       expect(readNativeChatDraftCache(SCOPE)).toBe('')
-    } else if (outcome !== 'not-editable') {
+    } else if (outcome === 'clean-gone') {
       expect(readNativeChatDraftCache(SCOPE)).toContain('later')
       expect(readNativeChatDraftCache(SCOPE)).not.toContain('submitted')
+    } else {
+      expect(hook.result.current.editor!.text).toContain('later')
+      expect(readNativeChatDraftCache(SCOPE)).toBe('')
     }
     if (outcome !== 'clean-gone') {
       hook.unmount()
@@ -667,3 +688,86 @@ it.each(['updated', 'not-editable', 'clean-gone', 'cancel'] as const)(
     root.remove()
   }
 )
+
+// Real host preflight decides restored-seed CAS; hooks own the resulting action lifetime.
+it.each(['refused', 'unknown-committed', 'unknown-refused-unchanged'] as const)(
+  'restoring the seed after %s preserves the real uncertainty boundary',
+  async (mode) => {
+    writeNativeChatDraftCache(SCOPE, 'occupied')
+    const hook = harness()
+    await begin(hook)
+    answer =
+      mode === 'refused'
+        ? done({ status: 'not-editable', messageId: 'card' })
+        : async () => ({
+            kind: 'not-done',
+            notice: 'Unconfirmed',
+            failure: { kind: 'unconfirmed' }
+          })
+    act(() => hook.result.current.editor!.change('attempt'))
+    await act(async () => hook.result.current.editor!.save())
+    if (mode === 'unknown-refused-unchanged') {
+      answer = done({ status: 'not-editable', messageId: 'card' })
+      act(() => hook.result.current.editor!.change('later refused'))
+      await act(async () => hook.result.current.editor!.save())
+    }
+    act(() => hook.result.current.editor!.change('original'))
+    const before = writeSpy.mock.calls.length
+    vi.mocked(toast.error).mockClear()
+    answer = async () => {
+      const body = mode === 'unknown-committed' ? withText('attempt').body : message.body
+      const result = queuedMessageUpdateDecision(
+        {
+          messageId: 'card',
+          position: 2,
+          body,
+          fingerprint: agentSessionSendBodyFingerprint(SESSION, body),
+          state: 'waiting',
+          holdReason: null,
+          returnedReason: null,
+          returnedRejection: null,
+          consumedAs: null,
+          queuedAt: null
+        },
+        SESSION,
+        { messageId: 'card', expectedBodyFingerprint: BASE, text: 'original' }
+      )
+      if (result.status === 'ready') {
+        throw new Error('unexpected ready')
+      }
+      return { kind: 'done', value: result }
+    }
+    await act(async () => hook.result.current.editor!.save())
+    expect(writeSpy).toHaveBeenCalledTimes(before + (mode === 'refused' ? 0 : 1))
+    if (mode === 'unknown-refused-unchanged') {
+      expect(hook.result.current.editor).toMatchObject({
+        text: 'original',
+        saving: false,
+        canSave: true
+      })
+      hook.rerender({ messages: [{ ...message }] })
+      expect(hook.result.current.editor).toBeDefined()
+      expect(readNativeChatDraftCache(SCOPE)).toBe('occupied')
+      expect(toast.error).not.toHaveBeenCalled()
+    } else if (mode === 'refused') {
+      expect(hook.result.current.editor).toBeUndefined()
+      expect(readNativeChatDraftCache(SCOPE)).toBe('occupied')
+      expect(toast.error).not.toHaveBeenCalled()
+    } else {
+      expect(hook.result.current.editor).toBeUndefined()
+      expect(readNativeChatDraftCache(SCOPE)).toBe('occupied\n\noriginal')
+      expect(toast.error).toHaveBeenCalledOnce()
+    }
+  }
+)
+
+function requestedFingerprint() {
+  const fields = QueuedMessageUpdateParams.omit({ envelope: true }).parse(
+    writeSpy.mock.calls.at(-1)?.[2]
+  )
+  const edited = queuedMessageWithEdit(message.body, fields)
+  if (!edited.ok) {
+    throw new Error(edited.reason)
+  }
+  return agentSessionSendBodyFingerprint(SESSION, edited.body)
+}

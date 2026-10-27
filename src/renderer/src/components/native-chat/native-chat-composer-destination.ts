@@ -7,17 +7,22 @@ type Destination = {
 }
 const destinations = new WeakMap<HTMLElement, Destination>()
 const descendants = new WeakMap<HTMLElement, Set<Destination>>()
+const scopes = new Map<string, Destination>()
 let activation = 0
 
 /** Registration identity survives disabled transitions; toolbar clicks retain the last focused input. */
 export function registerNativeChatComposerDestination(
   root: HTMLElement,
   handle: { current: NativeChatComposerHandle | null },
-  primary: boolean
+  primary: boolean,
+  scopeKey?: string
 ): () => void {
   const previous = destinations.get(root)
   const entry = { handle, active: 0, primary }
   destinations.set(root, entry)
+  if (scopeKey) {
+    scopes.set(scopeKey, entry)
+  }
   const ancestors: HTMLElement[] = []
   for (let parent: HTMLElement | null = root; parent; parent = parent.parentElement) {
     ancestors.push(parent)
@@ -34,6 +39,9 @@ export function registerNativeChatComposerDestination(
   root.addEventListener('focusin', activate)
   root.addEventListener('pointerdown', activate)
   return () => {
+    if (scopeKey && scopes.get(scopeKey) === entry) {
+      scopes.delete(scopeKey)
+    }
     root.removeEventListener('focusin', activate)
     root.removeEventListener('pointerdown', activate)
     for (const parent of ancestors) {
@@ -60,4 +68,10 @@ export function nativeChatComposerDestination(
     }
   }
   return selected?.handle.current ?? fallback
+}
+
+export function nativeChatComposerScopeDestination(
+  scopeKey: string
+): NativeChatComposerHandle | null {
+  return scopes.get(scopeKey)?.handle.current ?? null
 }

@@ -23,7 +23,8 @@ import {
 } from './native-chat-pending-attachment-cache'
 import {
   registerNativeChatComposerDestination,
-  nativeChatComposerDestination
+  nativeChatComposerDestination,
+  nativeChatComposerScopeDestination
 } from './native-chat-composer-destination'
 import {
   registerDictationComposerTarget,
@@ -93,7 +94,7 @@ it.each([20, 200])(
       }
     }
     releases.push(
-      registerNativeChatComposerDestination(input, owned, true),
+      registerNativeChatComposerDestination(input, owned, true, 'captured-scope'),
       registerDictationComposerTarget(pane, () => {})
     )
     for (let i = 0; i < count; i++) {
@@ -107,7 +108,8 @@ it.each([20, 200])(
               throw new Error('unrelated handle read')
             }
           },
-          true
+          true,
+          `other-scope-${i}`
         ),
         registerDictationComposerTarget(other, () => {})
       )
@@ -117,9 +119,12 @@ it.each([20, 200])(
     expect(nativeChatComposerDestination(pane, null)).toBe(handle)
     expect(captureInsertionTarget()?.kind).toBe('composer')
     expect(reads).toBe(1)
+    expect(nativeChatComposerScopeDestination('captured-scope')).toBe(handle)
+    expect(reads).toBe(2)
     expect(contains).not.toHaveBeenCalled()
     releases.forEach((release) => release())
     expect(nativeChatComposerDestination(pane, null)).toBeNull()
+    expect(nativeChatComposerScopeDestination('captured-scope')).toBeNull()
     holder.remove()
   }
 )
@@ -217,7 +222,8 @@ it.each([20, 200])(
               throw new Error('unrelated handle read')
             }
           },
-          true
+          true,
+          `other-scope-${i}`
         ),
         () => other.remove()
       )
@@ -262,5 +268,54 @@ it.each([20, 200])(
     expect(unrelatedReads).toBe(0)
     discardNativeChatQueuedEdit(edit)
     nativeChatPastedTextOperations.clear()
+  }
+)
+
+import { queuedEditPublicationKey } from '../../../../shared/queued-message-edit-publication'
+it.each([10, 100])(
+  'bounds a semantic publication lookup to three linear ID passes and one body at %i cards',
+  (count) => {
+    let ids = 0,
+      bodies = 0
+    const messages = Array.from({ length: count }, (_, index) => ({
+      get messageId() {
+        ids++
+        return `message-${index}`
+      },
+      position: index,
+      state: 'waiting' as const,
+      get body() {
+        bodies++
+        if (index !== count - 1) {
+          throw new Error('unrelated body read')
+        }
+        return {
+          kind: 'message' as const,
+          role: 'user' as const,
+          blocks: [{ type: 'text' as const, text: 'target' }]
+        }
+      }
+    }))
+    const submissions = Array.from({ length: count }, (_, index) => ({
+      clientMessageId: `submission-${index}`,
+      get queuedMessageId() {
+        ids++
+        return `message-${index}`
+      },
+      payloadFingerprint: 'proof',
+      fence: index,
+      dispatchState: 'pending' as const,
+      providerItemId: null,
+      reason: null,
+      submittedAt: 1,
+      resolvedAt: null
+    }))
+    queuedEditPublicationKey(
+      { messages, cards: messages, submissions },
+      'session',
+      `message-${count - 1}`
+    )
+    expect(ids).toBe(3 * count)
+    expect(bodies).toBe(1)
   }
 )

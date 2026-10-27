@@ -145,6 +145,7 @@ export function MobileNativeChatComposer({
     },
     onPickSkill,
     refuseCommand: editSession?.refuseCommand,
+    editing: editSession !== undefined,
     agent,
     structuredCatalog: structured?.catalog,
     filePaths,

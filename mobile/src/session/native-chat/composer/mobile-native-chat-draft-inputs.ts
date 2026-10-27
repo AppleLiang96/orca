@@ -62,14 +62,30 @@ export function useMobileNativeChatDraftInputs(scope: string | null): MobileNati
   )
   return useSyncExternalStore(subscribe, () => readMobileNativeChatDraftInputs(scope))
 }
-export function closeMobileNativeChatEditInputs(scope: string, to?: string): void {
+export function closeMobileNativeChatEditInputs(
+  scope: string,
+  to?: string,
+  kept: readonly PendingNativeChatImage[] = [],
+  clean = false
+): void {
   const destination = mobileNativeChatDraftDestination(scope)
   const input = readMobileNativeChatDraftInputs(scope)
   if (to) {
     updateMobileNativeChatDraftInputs(to, (current) => ({
-      images: [...current.images, ...input.images.filter((image) => !image.id.startsWith('kept-'))],
-      files: [...current.files, ...input.files],
-      skills: [...current.skills, ...input.skills],
+      images: [
+        ...current.images,
+        ...input.images.filter(
+          (image) =>
+            !kept.some(
+              (owned) =>
+                owned.id === image.id &&
+                owned.path === image.path &&
+                owned.previewUri === image.previewUri
+            )
+        )
+      ],
+      files: [...current.files, ...(clean ? [] : input.files)],
+      skills: [...current.skills, ...(clean ? [] : input.skills)],
       pending: (current.pending ?? 0) + (input.pending ?? 0)
     }))
     destination.scope = to

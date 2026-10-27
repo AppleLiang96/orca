@@ -110,7 +110,11 @@ function controller(
   }
 }
 
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 describe('NativeChatQueuedMessageList inline edit', () => {
   it('a host that cannot edit in place offers no Edit, and an empty menu is not shown', async () => {
@@ -241,3 +245,93 @@ describe('NativeChatQueuedMessageList inline edit', () => {
     }
   })
 })
+
+// The active production row owns exactly two observations, independent of queue size.
+it.each([10, 100])(
+  'reveals active editor/footer on size changes with %i cards and releases ownership',
+  (count) => {
+    const observers: {
+      callback: () => void
+      observe: ReturnType<typeof vi.fn>
+      disconnect: ReturnType<typeof vi.fn>
+    }[] = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(readonly callback: () => void) {
+          observers.push(this)
+        }
+        observe = vi.fn()
+        disconnect = vi.fn()
+      }
+    )
+    let height = 200,
+      viewport = 288
+    const original = HTMLElement.prototype.getBoundingClientRect
+    const measured = vi
+      .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.tagName === 'UL') {
+          return DOMRect.fromRect({ y: 100, height: viewport })
+        }
+        if (this.hasAttribute('data-queued-message-editor')) {
+          return DOMRect.fromRect({ y: 150 - (this.closest('ul')?.scrollTop ?? 0), height })
+        }
+        return original.call(this)
+      })
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
+      this: HTMLElement
+    ) {
+      return this.tagName === 'UL' ? viewport : 0
+    })
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus')
+    const editor = {
+      messageId: 'active',
+      draftScopeKey: 'scope',
+      text: 'edit',
+      imagesCapable: true,
+      acquiring: false,
+      saving: false,
+      canSave: true,
+      change: vi.fn(),
+      save: vi.fn(),
+      cancel: vi.fn()
+    }
+    const cards = [
+      card({ messageId: 'active' }),
+      ...Array.from({ length: count - 1 }, (_, i) => card({ messageId: `other-${i}` }))
+    ]
+    const view = renderList(controller(cards, null, true, { editCapable: true, editor }))
+    const scrollport = screen.getByRole('list', { name: 'Queued messages' })
+    const observer = observers.find((entry) =>
+      entry.observe.mock.calls.some(([node]) => node === scrollport)
+    )!
+    const resize = observer.callback
+    expect(observer.observe.mock.calls.map(([node]) => node)).toEqual([
+      view.container.querySelector('[data-queued-message-editor]'),
+      scrollport
+    ])
+    expect(scrollport.scrollTop).toBe(0)
+    // Notice/image/text growth: oversized editor exposes its trailing actions.
+    height = 323
+    resize()
+    expect(scrollport.scrollTop).toBe(85)
+    expect(focus).toHaveBeenCalledOnce()
+    const beforeManual = measured.mock.calls.length
+    scrollport.scrollTop = 0
+    fireEvent.scroll(scrollport)
+    expect(measured.mock.calls.length).toBe(beforeManual)
+    expect(scrollport.scrollTop).toBe(0)
+    viewport = 180
+    resize()
+    expect(scrollport.scrollTop).toBe(193)
+    // Shrink back to a fitting row: minimally reveal its top, within the queue only.
+    height = 100
+    resize()
+    expect(scrollport.scrollTop).toBe(50)
+    expect(view.container.scrollTop).toBe(0)
+    expect(focus).toHaveBeenCalledOnce()
+    view.unmount()
+    expect(observer.disconnect).toHaveBeenCalledOnce()
+  }
+)

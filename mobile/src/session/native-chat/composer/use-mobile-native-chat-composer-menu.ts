@@ -31,9 +31,10 @@ export function useMobileNativeChatComposerMenu(input: {
   onSlashMenuOpen?: () => void
   focusField: () => void
   onPickSkill?: (skill: { name: string; path: string }) => void
+  editing?: boolean
   refuseCommand?: (text: string) => boolean
 }) {
-  const { value, onChangeText, agent, structuredCatalog, filePaths } = input
+  const { value, onChangeText, agent, structuredCatalog, filePaths, editing } = input
   const [cursor, setCursor] = useState(0)
   // Drives the caret only right after an insert; a permanently controlled `selection` breaks
   // manual caret placement in React Native.
@@ -41,8 +42,8 @@ export function useMobileNativeChatComposerMenu(input: {
   const [menuKind, setMenuKind] = useState<MenuKind | null>(null)
 
   const skillTokens = useMemo(
-    () => mobileComposerSkillTokens({ agent, structured: structuredCatalog }),
-    [agent, structuredCatalog]
+    () => mobileComposerSkillTokens({ agent, structured: structuredCatalog, editing }),
+    [agent, structuredCatalog, editing]
   )
   const skillToken = leadingSkillToken(value, skillTokens)
   const setDraft = (next: string): void => {
@@ -77,10 +78,11 @@ export function useMobileNativeChatComposerMenu(input: {
     const items = mobileComposerSlashItems({
       agent,
       structured: structuredCatalog,
+      editing,
       query: menuQuery
     })
     return narrowedMenuItems(items, menuKind)
-  }, [agent, filePaths, menuKind, menuMode, menuQuery, structuredCatalog])
+  }, [agent, filePaths, menuKind, menuMode, menuQuery, structuredCatalog, editing])
 
   const { onNeedFiles, onSlashMenuOpen } = input
   useEffect(() => {

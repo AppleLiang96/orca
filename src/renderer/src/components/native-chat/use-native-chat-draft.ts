@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import {
-  withNativeChatComposerDraftAddition,
-  type NativeChatComposerDraftAddition
-} from './native-chat-composer-draft-addition'
+import { withNativeChatComposerDraftAddition } from './native-chat-composer-draft-addition'
+import type { NativeChatDraftAppend } from './native-chat-composer-draft-memory'
 import type { NativeChatComposerDraft } from './native-chat-composer-draft-storage'
 import {
   subscribeToNativeChatComposerDraft,
@@ -17,7 +15,7 @@ type CompositionHold = {
   scopeKey: string
   shown: string
   base: NativeChatComposerDraft
-  additions: NativeChatComposerDraftAddition[]
+  additions: NativeChatDraftAppend[]
 }
 
 /** Mutate the durable scope store’s current draft, never a composer copy, so unsent text survives toggles, remounts and restarts. */
@@ -83,7 +81,9 @@ export function useNativeChatDraft(
         const merged = held.additions.reduce<NativeChatComposerDraft>(
           (draft, addition) => ({
             ...draft,
-            ...withNativeChatComposerDraftAddition(draft, addition)
+            ...(typeof addition === 'function'
+              ? addition(draft)
+              : withNativeChatComposerDraftAddition(draft, addition))
           }),
           base
         )
