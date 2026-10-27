@@ -225,11 +225,8 @@ const deletionOperations = () =>
   (['rm', 'unlink', 'rmdir'] as const).map((operation) => vi.spyOn(nativeFs, operation))
 
 function expectNoTeardownOrDeletion(
-  stop: ReturnType<typeof vi.fn>,
-  teardown: ReturnType<typeof vi.fn>,
-  operations: ReturnType<typeof deletionOperations>
+  ...callbacks: (ReturnType<typeof vi.fn> | ReturnType<typeof deletionOperations>[number])[]
 ): void {
-  const callbacks = [stop, teardown, ...operations]
   callbacks.forEach((callback) => expect(callback).not.toHaveBeenCalled())
 }
 
@@ -363,7 +360,7 @@ describe('finishing an interrupted worktree removal after a restart', () => {
     await expect(
       cleanupLocalOrphanedWorktreeDirectory(repoPath, worktreePath, {}, stop)
     ).rejects.toThrow('Worktree is no longer registered with Git but its directory remains.')
-    expectNoTeardownOrDeletion(stop, teardown, operations)
+    expectNoTeardownOrDeletion(stop, teardown, ...operations)
     expect(removeHostTree).not.toHaveBeenCalled()
     expect(metadata).not.toHaveBeenCalled()
     expect(pushCleanup).not.toHaveBeenCalled()
@@ -440,6 +437,7 @@ describe('finishing an interrupted worktree removal after a restart', () => {
     )(
     '$entry refuses $route before publication/teardown and honors current native force',
     async ({ entry, route }) => {
+      const seed = await readFile(join(worktreePath, 'seed.txt'))
       await orphanAdmin()
       if (route === 'wsl') {
         await unlink(join(worktreePath, '.git'))
@@ -459,8 +457,8 @@ describe('finishing an interrupted worktree removal after a restart', () => {
         )
         expect(retryJob).not.toHaveBeenCalled()
         expect(pushCleanup).not.toHaveBeenCalled()
-        expectNoTeardownOrDeletion(stop, teardown, operations)
-        expect(await readFile(join(worktreePath, 'seed.txt'), 'utf8')).toBe('seed\n')
+        expectNoTeardownOrDeletion(stop, teardown, ...operations)
+        expect(await readFile(join(worktreePath, 'seed.txt'))).toEqual(seed)
         expect(await readWorktreeRemovalRecords(recordsDir)).toMatchObject([
           { force: true, failure: { message: 'held file' } }
         ])
@@ -543,7 +541,7 @@ describe('finishing an interrupted worktree removal after a restart', () => {
         teardown.mockClear()
         const operations = deletionOperations()
         await expect(deleteViaEntry(entry, true, stop, teardown)).rejects.toThrow()
-        expectNoTeardownOrDeletion(stop, teardown, operations)
+        expectNoTeardownOrDeletion(stop, teardown, ...operations)
         expect(await readFile(join(worktreePath, 'notes.txt'), 'utf8')).toBe('mine\n')
       }
     }
