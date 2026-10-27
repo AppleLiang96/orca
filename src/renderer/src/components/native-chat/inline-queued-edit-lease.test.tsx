@@ -9,6 +9,7 @@ import {
   harness,
   begin,
   requestedFingerprint,
+  holdCalls,
   type Outcome
 } from './structured-queued-edit.test-support'
 import { act, waitFor } from '@testing-library/react'
@@ -172,3 +173,142 @@ describe('current desktop reacquisition and Save share the outcome owner', () =>
     host.leases.dispose()
   })
 })
+
+it.each(['unknown-changed', 'unknown-gone', 'pending-proof', 'rebase-loss'] as const)(
+  '%s joins the timed renewal/reacquisition producer to the Save owner without publication',
+  async (mode) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const host = queuedEditHost(SESSION, message)
+    const actions: string[] = []
+    rpc.mockImplementation(async (_target, _method, params) => {
+      actions.push(params.action)
+      const key = { callerKey: 'client', editId: params.editId }
+      if (params.action === 'release') {
+        host.leases.release(key, params.messageId)
+        return { status: 'released' }
+      }
+      return params.action === 'acquire'
+        ? host.acquire(params.editId, params.expectedBodyFingerprint ?? '')
+        : host.leases.renew(key, params.messageId)
+    })
+    const hook = harness()
+    await begin(hook)
+    writeNativeChatDraftCache(SCOPE, 'occupied')
+    const reply = deferred<Outcome>()
+    script.answer = () => reply.promise
+    act(() => hook.result.current.editor!.change('B'))
+    act(() => hook.result.current.editor!.save())
+    const decision = host.update({
+      messageId: 'card',
+      expectedBodyFingerprint: host.row!.fingerprint,
+      text: 'B'
+    })
+    expect(decision.status).toBe('updated')
+    if (mode === 'rebase-loss') {
+      const { insertNativeChatComposerDraftText } =
+        await import('./native-chat-composer-draft-insertion')
+      act(() => insertNativeChatComposerDraftText(hook.result.current.editor!.draftScopeKey, 'C'))
+    }
+    if (mode !== 'pending-proof') {
+      await act(async () =>
+        reply.resolve(
+          mode === 'rebase-loss'
+            ? { kind: 'done', value: decision }
+            : { kind: 'not-done', notice: 'unknown', failure: { kind: 'unconfirmed' } }
+        )
+      )
+      expect(hook.result.current.editor).toMatchObject({
+        text: mode === 'rebase-loss' ? 'B C' : 'B',
+        saving: false
+      })
+    }
+    if (mode === 'unknown-gone') {
+      host.depart()
+    }
+    if (mode === 'rebase-loss') {
+      expect(host.leases.heldIds()).toEqual(new Set(['card']))
+      hook.rerender({ messages: [{ ...message, body: host.row!.body }] })
+      expect(
+        host.update({
+          messageId: 'card',
+          expectedBodyFingerprint: host.row!.fingerprint,
+          text: 'rival'
+        }).status
+      ).toBe('updated')
+    }
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    if (mode === 'pending-proof') {
+      expect(hook.result.current.editor?.saving).toBe(true)
+      expect(readNativeChatDraftCache(SCOPE)).toBe('occupied')
+      expect(toast.error).not.toHaveBeenCalled()
+      await act(async () => reply.resolve({ kind: 'done', value: decision }))
+    }
+    expect(hook.result.current.editor).toBeUndefined()
+    expect(readNativeChatDraftCache(SCOPE)).toBe(
+      mode === 'pending-proof' ? 'occupied' : `occupied\n\n${mode === 'rebase-loss' ? 'B C' : 'B'}`
+    )
+    expect(toast.error).toHaveBeenCalledTimes(mode === 'pending-proof' ? 0 : 1)
+    expect(actions).toEqual(
+      mode === 'rebase-loss'
+        ? ['acquire', 'acquire', 'release', 'renew', 'acquire', 'release']
+        : ['acquire', 'renew', 'acquire', 'release']
+    )
+    await act(() => vi.advanceTimersByTimeAsync(120_000))
+    expect(holdCalls('acquire')).toHaveLength(mode === 'rebase-loss' ? 3 : 2)
+    hook.unmount()
+    host.leases.dispose()
+    expect(vi.getTimerCount()).toBe(0)
+  }
+)
+
+it.each(['gone', 'held'] as const)(
+  'first acquire failure unlocks typing and its timed %s retry is observed',
+  async (status) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const host = queuedEditHost(SESSION, message)
+    rpc
+      .mockImplementation(async (_target, _method, params) => {
+        if (params.action === 'release') {
+          return { status: 'released' }
+        }
+        return host.acquire(params.editId, params.expectedBodyFingerprint ?? '')
+      })
+      .mockRejectedValueOnce(new Error('offline'))
+    const hook = harness()
+    await begin(hook)
+    expect(hook.result.current.editor?.acquiring).toBe(false)
+    writeNativeChatDraftCache(SCOPE, 'occupied')
+    act(() => hook.result.current.editor!.change('B'))
+    if (status === 'gone') {
+      host.depart()
+    }
+    await act(() => vi.advanceTimersByTimeAsync(30_000))
+    expect(holdCalls('acquire')).toHaveLength(2)
+    if (status === 'gone') {
+      expect(hook.result.current.editor).toBeUndefined()
+      expect(readNativeChatDraftCache(SCOPE)).toBe('occupied\n\nB')
+      expect(toast.error).toHaveBeenCalledOnce()
+    } else {
+      expect(hook.result.current.editor).toMatchObject({ text: 'B', acquiring: false })
+      expect(readNativeChatDraftCache(SCOPE)).toBe('occupied')
+      act(() => hook.result.current.editor!.cancel())
+    }
+    hook.unmount()
+    host.leases.dispose()
+    warn.mockRestore()
+  }
+)
+
+it.each(['changed', 'gone', 'not-editable'] as const)(
+  'initial desktop %s has one clean disposition and readiness cannot revive it',
+  async (status) => {
+    rpc.mockResolvedValueOnce({ status })
+    const hook = harness()
+    await begin(hook)
+    expect(hook.result.current.editor).toBeUndefined()
+    expect(readNativeChatDraftCache(SCOPE)).toBe('')
+    expect(toast.error).toHaveBeenCalledTimes(status === 'not-editable' ? 1 : 0)
+    expect(holdCalls('release')).toHaveLength(1)
+  }
+)

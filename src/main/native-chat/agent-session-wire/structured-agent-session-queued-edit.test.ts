@@ -569,6 +569,7 @@ it('real lease replacement survives an old delayed release; delivery may beat la
       messageId: id,
       editId,
       expectedBodyFingerprint,
+      onLost: () => {},
       request: async (params) => {
         if (params.action === 'release' && delayRelease) {
           return new Promise((resolve) => {
@@ -599,3 +600,67 @@ it('real lease replacement survives an old delayed release; delivery may beat la
   expect(await late.acquired).toMatchObject({ status: 'gone' })
   late.end()
 })
+
+it.each(['retry-not-editable', 'renew-gone'] as const)(
+  'shared lease delivers %s from the actual host wire boundary',
+  async (mode) => {
+    await rig.workingSend()
+    const row =
+      mode === 'retry-not-editable'
+        ? await journal().queuedMessages.insert({
+            messageId: 'wire-command',
+            body: { ...hostTestMessage('/compact'), command: { name: 'compact' } }
+          })
+        : journal().queuedMessages.get(await queue('A'))!
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const onLost = vi.fn()
+    const request = vi.fn((params: Parameters<typeof rig.host.queuedMessageEditHold>[1]) =>
+      rig.host.queuedMessageEditHold(QUEUED_RIG_CALLER, params)
+    )
+    if (mode === 'retry-not-editable') {
+      request.mockRejectedValueOnce(new Error('offline'))
+    }
+    const lease = startQueuedEditLease({
+      sessionId: HOST_TEST_SESSION,
+      messageId: row.messageId,
+      editId: 'wire-terminal',
+      expectedBodyFingerprint: row.fingerprint,
+      request,
+      onLost
+    })
+    let missing: ReturnType<typeof vi.spyOn> | undefined
+    try {
+      if (mode === 'retry-not-editable') {
+        await expect(lease.acquired).rejects.toThrow('offline')
+      } else {
+        expect(await lease.acquired).toMatchObject({ status: 'held' })
+        await rig.host.close(HOST_TEST_SESSION, 'evict')
+        missing = vi.spyOn(rig.store, 'getConversation').mockReturnValue(null)
+      }
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(onLost).toHaveBeenCalledOnce()
+      expect(onLost).toHaveBeenCalledWith({
+        lease,
+        expected: row.fingerprint,
+        status: mode === 'retry-not-editable' ? 'not-editable' : 'gone'
+      })
+      expect(request.mock.calls.map(([params]) => params.action)).toEqual([
+        'acquire',
+        mode === 'retry-not-editable' ? 'acquire' : 'renew'
+      ])
+      lease.end()
+      await vi.advanceTimersByTimeAsync(0)
+      const count = request.mock.calls.length
+      await vi.advanceTimersByTimeAsync(120_000)
+      expect(request).toHaveBeenCalledTimes(count)
+      expect(onLost).toHaveBeenCalledOnce()
+    } finally {
+      lease.end()
+      await vi.advanceTimersByTimeAsync(0)
+      missing?.mockRestore()
+      warn.mockRestore()
+      vi.useRealTimers()
+    }
+  }
+)

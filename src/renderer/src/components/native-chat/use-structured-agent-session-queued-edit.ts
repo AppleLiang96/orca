@@ -1,3 +1,4 @@
+import type { QueuedEditLeaseLoss } from '../../../../shared/queued-message-edit-lease'
 import { queuedEditPublicationKey } from '../../../../shared/queued-message-edit-publication'
 // Edit inside the card while prompts own the composer; host owns durable content, this pane owns typing, a delivery hold lease and compare-and-set Save.
 
@@ -88,36 +89,30 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
     [close]
   )
 
+  const receiveLoss = useCallback(
+    (edit: Edit, loss: QueuedEditLeaseLoss, observe: (edit: Edit) => void) => {
+      if (edit.closed || edit.lease !== loss.lease) {
+        return
+      }
+      edit.leaseLoss = loss
+      observe(edit)
+    },
+    []
+  )
   const reacquire = useCallback(
     (edit: Edit, observe: (edit: Edit) => void) => {
-      edit.lease?.end()
+      edit.lease.end()
       edit.leaseLoss = undefined
-      const expected = edit.baseFingerprint
-      const lease = startQueuedEditLease({
+      edit.lease = startQueuedEditLease({
         target,
         sessionId: edit.sessionId,
         messageId: edit.messageId,
         editId: structuredSessionOperationId(),
-        expectedBodyFingerprint: edit.baseFingerprint
+        expectedBodyFingerprint: edit.baseFingerprint,
+        onLost: (loss) => receiveLoss(edit, loss, observe)
       })
-      edit.lease = lease
-      void lease.acquired
-        .catch(() => null)
-        .then((answer) => {
-          if (edit.closed || edit.lease !== lease) {
-            return
-          }
-          if (
-            answer?.status === 'gone' ||
-            answer?.status === 'changed' ||
-            answer?.status === 'not-editable'
-          ) {
-            edit.leaseLoss = { lease, expected, status: answer.status }
-            observe(edit)
-          }
-        })
     },
-    [target]
+    [target, receiveLoss]
   )
 
   const settle = useCallback(
@@ -131,6 +126,13 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
         edit.attempt !== attempt ||
         (!result && nativeChatQueuedEditSaving(edit))
       ) {
+        return
+      }
+      if (edit.acquiring && edit.leaseLoss?.lease === edit.lease) {
+        if (edit.leaseLoss.status === 'not-editable') {
+          toast.error(queuedEditNotice('editFailed'))
+        }
+        close(edit)
         return
       }
       const outcome = settleNativeChatQueuedEdit(edit, attempt, result)
@@ -193,7 +195,8 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
         sessionId,
         messageId,
         editId: structuredSessionOperationId(),
-        expectedBodyFingerprint: baseFingerprint
+        expectedBodyFingerprint: baseFingerprint,
+        onLost: (loss) => receiveLoss(edit, loss, settle)
       })
       const edit: Edit = {
         scope,
@@ -210,23 +213,15 @@ export function useStructuredAgentSessionQueuedEdit(args: StructuredQueuedEditAr
         lease
       }
       render(edit)
-      const answer = await lease.acquired.catch(() => null)
+      await lease.acquired.catch(() => null)
       if (!isOpen(active, edit) || edit.lease !== lease) {
         return
       }
-      if (answer?.status === 'gone' || answer?.status === 'changed') {
-        // Sent, removed or edited elsewhere before the edit began: the card shows what happened.
-        close()
-      } else if (answer?.status === 'not-editable') {
-        toast.error(queuedEditNotice('editFailed'))
-        close()
-      } else {
-        // An unanswered lease never gates typing: the lease keeps trying, and Save checks the text.
-        edit.acquiring = false
-        render(edit)
-      }
+      // An unanswered lease never gates typing: the lease keeps trying, and Save checks the text.
+      edit.acquiring = false
+      render(edit)
     },
-    [capable, close, composerScopeKey, messages, render, scope, sessionId, target]
+    [capable, composerScopeKey, messages, render, scope, sessionId, target, receiveLoss, settle]
   )
 
   const save = useCallback(async () => {

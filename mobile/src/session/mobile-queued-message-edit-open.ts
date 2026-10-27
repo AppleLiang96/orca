@@ -1,3 +1,4 @@
+import type { QueuedEditLeaseLoss } from '../../../src/shared/queued-message-edit-lease'
 import {
   queuedMessageEditableText,
   queuedEditKeptImages
@@ -16,7 +17,8 @@ import {
 export function createMobileQueuedEdit(
   args: MobileStructuredQueuedEditArgs,
   messageId: string,
-  getClient: () => MobileStructuredQueuedEditArgs['client']
+  getClient: () => MobileStructuredQueuedEditArgs['client'],
+  onLost: (edit: Edit, loss: QueuedEditLeaseLoss) => void
 ): Edit | null {
   const { enabled, client, sessionId, sessionKey } = args
   if (!enabled || !client || !sessionId) {
@@ -58,7 +60,8 @@ export function createMobileQueuedEdit(
       getClient,
       sessionId,
       messageId,
-      expectedBodyFingerprint: fingerprint
+      expectedBodyFingerprint: fingerprint,
+      onLost: (loss) => onLost(edit, loss)
     })
   }
   return edit

@@ -341,7 +341,6 @@ export function MobileNativeChatComposer({
                 accessibilityLabel="Cancel editing"
                 style={styles.ghostButton}
                 onPress={editSession.cancel}
-                disabled={editSession.locked}
               >
                 <Text style={{ color: colors.textSecondary }}>Cancel</Text>
               </Pressable>

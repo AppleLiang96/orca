@@ -1,3 +1,4 @@
+import type { QueuedEditLeaseLoss } from '../../../src/shared/queued-message-edit-lease'
 import { createMobileQueuedEdit } from './mobile-queued-message-edit-open'
 import {
   useCallback,
@@ -67,39 +68,32 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
     [render]
   )
 
-  const acquire = useCallback((edit: Edit, observe: (edit: Edit) => unknown, initial = false) => {
-    if (!initial) {
+  const receiveLoss = useCallback(
+    (edit: Edit, loss: QueuedEditLeaseLoss, observe: (edit: Edit) => unknown) => {
+      if (edit.closed || edit.lease !== loss.lease) {
+        return
+      }
+      edit.leaseLoss = loss
+      observe(edit)
+    },
+    []
+  )
+  const acquire = useCallback(
+    (edit: Edit, observe: (edit: Edit) => unknown) => {
       edit.lease.end()
-    }
-    const lease = initial
-      ? edit.lease
-      : startMobileQueuedEditLease({
-          getClient: () =>
-            latest.current.sessionKey === edit.scope ? latest.current.client : edit.client,
-          sessionId: edit.sessionId,
-          messageId: edit.messageId,
-          expectedBodyFingerprint: edit.fingerprint
-        })
-    edit.lease = lease
-    edit.leaseLoss = undefined
-    const expected = edit.fingerprint
-    void lease.acquired.then(
-      (answer) => {
-        if (edit.closed || edit.lease !== lease) {
-          return
-        }
-        if (
-          answer.status === 'gone' ||
-          answer.status === 'changed' ||
-          answer.status === 'not-editable'
-        ) {
-          edit.leaseLoss = { lease, expected, status: answer.status }
-          observe(edit)
-        }
-      },
-      () => undefined
-    )
-  }, [])
+      edit.leaseLoss = undefined
+      edit.lease = startMobileQueuedEditLease({
+        getClient: () =>
+          latest.current.sessionKey === edit.scope ? latest.current.client : edit.client,
+        sessionId: edit.sessionId,
+        messageId: edit.messageId,
+        expectedBodyFingerprint: edit.fingerprint,
+        onLost: (loss) => receiveLoss(edit, loss, observe)
+      })
+    },
+    [receiveLoss]
+  )
+
   const settle = useCallback(
     function settleResult(
       edit: Edit,
@@ -160,16 +154,16 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
       const edit = createMobileQueuedEdit(
         { ...latest.current, sessionKey, sessionId, client },
         messageId,
-        () => (latest.current.sessionKey === sessionKey ? latest.current.client : client)
+        () => (latest.current.sessionKey === sessionKey ? latest.current.client : client),
+        (edit, loss) => receiveLoss(edit, loss, settle)
       )
       if (!edit) {
         return false
       }
       render(edit)
-      acquire(edit, settle, true)
       return true
     },
-    [client, acquire, render, sessionId, sessionKey, settle]
+    [client, receiveLoss, render, sessionId, sessionKey, settle]
   )
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -299,7 +293,7 @@ export function useMobileStructuredQueuedEdit(args: MobileStructuredQueuedEditAr
           },
           save,
           cancel: () => {
-            if (active.current && !mobileQueuedEditSaving(active.current)) {
+            if (active.current) {
               close(active.current)
             }
           }

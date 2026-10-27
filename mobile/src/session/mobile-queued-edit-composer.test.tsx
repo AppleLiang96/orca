@@ -4,7 +4,11 @@ import {
   useMobileNativeChatDraft,
   setMobileNativeChatDraftText
 } from './native-chat/composer/mobile-native-chat-draft-store'
-import { updateMobileNativeChatDraftInputs } from './native-chat/composer/mobile-native-chat-draft-inputs'
+import {
+  updateMobileNativeChatDraftInputs,
+  mobileNativeChatDraftDestination,
+  captureMobileNativeChatTextDestination
+} from './native-chat/composer/mobile-native-chat-draft-inputs'
 import { useMobileNativeChatFileAttachments } from './native-chat/composer/use-mobile-native-chat-file-attachments'
 import { useMobileNativeChatImageAttachments } from './native-chat/composer/use-mobile-native-chat-image-attachments'
 import { act } from 'react-test-renderer'
@@ -535,4 +539,196 @@ describe('real phone inline composer from More through picker pruning and host b
     expect(readMobileNativeChatDraftInputs('original-bottom').files).toEqual([])
     expect(readMobileNativeChatDraftInputs('original-bottom').images).toEqual([])
   })
+
+  it.each(['updated', 'unknown', 'refused', 'unknown-phase'] as const)(
+    'real phone Cancel revokes pending/unknown Save before late %s and cannot mutate a new edit',
+    async (mode) => {
+      const { batchEvent, fieldsOf } =
+        await import('./use-mobile-structured-agent-session-queued.test-fixture')
+      const message = queuedDraft({ messageId: 'pending-cancel' })
+      const other = queuedDraft({ messageId: 'new-edit', position: 2 })
+      const host = queuedEditHost(SESSION_ID, message)
+      const { button, field } = await rows(message)
+      act(() => setMobileNativeChatDraftText('original-bottom', 'occupied'))
+      act(() => field().props.onChangeText('B'))
+      act(() => field().props.onFocus())
+      const dictate = captureMobileNativeChatTextDestination()!
+      expect(dictate).toBeTypeOf('function')
+      const oldScope = state.hook!.queued.editor!.scopeKey
+      const destination = mobileNativeChatDraftDestination(oldScope)
+      let release = () => {}
+      const pending = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let oldEditId = ''
+      sendRequest.mockImplementation(async (method, params) => {
+        if (
+          method === 'agentSession.queuedMessageEditHold' &&
+          fieldsOf(params).action === 'release'
+        ) {
+          oldEditId = String(fieldsOf(params).editId)
+        }
+        if (method !== 'agentSession.queuedMessageUpdate') {
+          return readOrHoldReply(method, params)
+        }
+        const decision =
+          mode === 'refused'
+            ? { status: 'not-editable' as const, messageId: message.messageId }
+            : host.update(QueuedMessageUpdateParams.parse(params))
+        expect(decision.status).toBe(mode === 'refused' ? 'not-editable' : 'updated')
+        await pending
+        if (mode === 'unknown' || mode === 'unknown-phase') {
+          throw markRpcDeliveryUnknown(new Error('lost'))
+        }
+        return mutationOk(decision)
+      })
+      let save!: Promise<void>
+      act(() => {
+        save = button('Save edited message').props.onPress()
+      })
+      expect(state.hook!.queued.editor?.saving).toBe(true)
+      expect(field().props.editable).toBe(false)
+      expect(button('Save edited message').props.disabled).toBe(true)
+      expect(button('Cancel editing').props.disabled ?? false).toBe(false)
+      if (mode === 'unknown-phase') {
+        await act(async () => {
+          release()
+          await save
+        })
+        expect(state.hook!.queued.editor?.saving).toBe(false)
+        expect(field().props.editable).toBe(true)
+      }
+      await act(async () => button('Cancel editing').props.onPress())
+      expect(state.hook!.queued.editor).toBeUndefined()
+      expect(destination.active).toBe(false)
+      expect(oldEditId).not.toBe('')
+      expect(state.bottomText).toBe('occupied')
+      act(() => state.listener?.(batchEvent([message, other])))
+      await act(async () => {
+        await state.hook!.queued.edit!(other.messageId)
+      })
+      act(() => field().props.onChangeText('fresh input'))
+      const newScope = state.hook!.queued.editor!.scopeKey
+      act(() => expect(dictate('late speech')).toBe(false))
+      await act(async () => {
+        release()
+        await save
+      })
+      act(() => state.listener?.(batchEvent([{ ...message, body: host.row!.body }, other])))
+      expect(state.hook!.queued.editor).toMatchObject({
+        messageId: other.messageId,
+        text: 'fresh input',
+        scopeKey: newScope,
+        saving: false
+      })
+      expect(state.bottomText).toBe('occupied')
+      expect(readMobileNativeChatDraftInputs(oldScope)).toMatchObject({
+        files: [],
+        images: [],
+        skills: []
+      })
+      expect(error).not.toHaveBeenCalled()
+      expect(resolved).not.toHaveBeenCalled()
+      expect(
+        sendRequest.mock.calls.filter(
+          ([method, params]) =>
+            method === 'agentSession.queuedMessageEditHold' &&
+            fieldsOf(params).action === 'release' &&
+            fieldsOf(params).editId === oldEditId
+        )
+      ).toHaveLength(1)
+      host.leases.dispose()
+    }
+  )
+
+  it.each(['files', 'images'] as const)(
+    'real %s upload Cancel revokes its captured destination while normal pending admission blocks Save',
+    async (kind) => {
+      const { ok } = await import('./use-mobile-structured-agent-session-queued.test-fixture')
+      const message = queuedDraft({ messageId: `cancel-${kind}` })
+      const { root, button } = await rows(message)
+      act(() => setMobileNativeChatDraftText('original-bottom', 'occupied'))
+      const scope = state.hook!.queued.editor!.scopeKey
+      const destination = mobileNativeChatDraftDestination(scope)
+      let release = () => {}
+      const pending = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let started = () => {}
+      const start = new Promise<void>((resolve) => {
+        started = resolve
+      })
+      picker.pickFiles.mockImplementation(async function* () {
+        yield { name: 'late.txt', mime: 'text/plain', byteLength: 1, base64: 'YQ==' }
+        yield { name: 'never.txt', mime: 'text/plain', byteLength: 1, base64: 'Yg==' }
+      })
+      picker.pickImages.mockResolvedValue([
+        { base64: 'YQ==', uri: 'file:///late.png' },
+        { base64: 'Yg==', uri: 'file:///never.png' }
+      ])
+      const isStart = (method: string) =>
+        method.endsWith('uploadStart') || method === 'clipboard.startImageUpload'
+      sendRequest.mockImplementation(async (method, params) => {
+        if (isStart(method)) {
+          started()
+          await pending
+          return ok({ uploadId: 'held' })
+        }
+        if (method === 'clipboard.commitImageUpload') {
+          return ok('/late.png')
+        }
+        if (method.endsWith('uploadCommit')) {
+          return ok({ path: '/late.txt', name: 'late.txt', byteLength: 1 })
+        }
+        if (method.includes('uploadChunk') || method === 'clipboard.appendImageUploadChunk') {
+          return ok(null)
+        }
+        return readOrHoldReply(method, params)
+      })
+      const inline = root()
+        .findByType(MobileQueuedMessageComposer)
+        .findByType(MobileNativeChatComposer)
+      await act(async () => {
+        if (kind === 'files') {
+          inline.props.structured.onAttachFiles()
+        } else {
+          inline.props.onAttachImage()
+        }
+        await start
+      })
+      expect(readMobileNativeChatDraftInputs(scope).pending).toBe(1)
+      expect(state.hook!.queued.editor!.canSave).toBe(false)
+      expect(button('Save edited message').props.disabled).toBe(true)
+      expect(button('Cancel editing').props.disabled ?? false).toBe(false)
+      await act(async () => button('Cancel editing').props.onPress())
+      expect(destination.active).toBe(false)
+      expect(state.hook!.queued.editor).toBeUndefined()
+      await act(async () => {
+        release()
+        await vi.waitFor(() =>
+          expect(
+            sendRequest.mock.calls.some(
+              ([method]) =>
+                method.endsWith('uploadCommit') || method === 'clipboard.commitImageUpload'
+            )
+          ).toBe(true)
+        )
+      })
+      expect(sendRequest.mock.calls.filter(([method]) => isStart(method))).toHaveLength(1)
+      expect(
+        sendRequest.mock.calls.some(([method]) => method === 'agentSession.queuedMessageUpdate')
+      ).toBe(false)
+      expect(readMobileNativeChatDraftInputs(scope)).toMatchObject({
+        files: [],
+        images: [],
+        skills: []
+      })
+      expect(readMobileNativeChatDraftInputs('original-bottom')).toMatchObject({
+        files: [],
+        images: []
+      })
+      expect(state.bottomText).toBe('occupied')
+      expect(error).not.toHaveBeenCalled()
+    }
+  )
 })
