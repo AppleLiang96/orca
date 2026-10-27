@@ -17,7 +17,7 @@ import {
 import type { MobileQueuedMessageInlineEditor } from './use-mobile-structured-queued-edit'
 import { MobileQueuedMessageComposer } from './MobileQueuedMessageComposer'
 import { MobileQueuedCardText } from './MobileQueuedCardText'
-import { queuedMessageStyles as styles } from './mobile-native-chat-queued-message-styles'
+import { queuedMessageStyles as styles } from './native-chat/input/mobile-native-chat-queued-message-styles'
 
 type QueuedMessageCardRowProps = {
   card: MobileQueuedMessageCard
