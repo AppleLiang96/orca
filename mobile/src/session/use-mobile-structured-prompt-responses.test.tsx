@@ -7,7 +7,7 @@ import {
   EMPTY_STRUCTURED_AGENT_SESSION,
   type StructuredAgentSessionState
 } from '../../../src/shared/structured-agent-session-reducer'
-import { formatQuestionFreeTextAnswer } from './mobile-native-chat-question'
+import { formatQuestionFreeTextAnswer } from './native-chat/input/mobile-native-chat-question'
 import {
   projectStructuredQuestion,
   type StructuredQuestionItem
@@ -272,6 +272,28 @@ describe('useMobileStructuredPromptResponses', () => {
         itemId: 'item-s',
         expectedRevision: 3,
         optionId: 'notes:DuckDB'
+      })
+    })
+
+    it('packs an allowed empty answer for a host that predates answers', async () => {
+      const base = singlePrompt()
+      const prompt: StructuredQuestionItem = {
+        ...base,
+        body: { ...base.body, freeTextInput: { allowEmpty: true } }
+      }
+      const { mutate, sent } = recordingMutate()
+      mount(prompt, mutate, false)
+
+      await act(async () => {
+        await hook().respondQuestion(
+          formatQuestionFreeTextAnswer(projectStructuredQuestion(prompt)!, '')
+        )
+      })
+
+      expect(sentFields(sent)).toEqual({
+        itemId: 'item-s',
+        expectedRevision: 3,
+        optionId: 'notes:'
       })
     })
 
