@@ -2,7 +2,7 @@ import { buildTerminalHttpLogicalLines, hasHardWrappedRows } from './terminal-ht
 import { extractTerminalHttpLinks } from './terminal-http-url-extraction'
 import { dedupeLogicalLines } from './terminal-link-logical-line-deduplication'
 import { rangeForParsedLinkOnRow } from './terminal-link-row-range'
-import { extractTerminalFileLinkCandidates, type ParsedTerminalFileLink } from './terminal-links'
+import { extractTerminalFileLinks, type ParsedTerminalFileLink } from './terminal-links'
 import { terminalLogicalLinkHasOscLink } from './terminal-osc-link-cells'
 import {
   buildHardWrappedPathLogicalLineCandidates,
@@ -68,7 +68,7 @@ export function findTerminalFileLinksAtBufferPosition(
 ): TerminalFileLinkAtBufferPosition[] {
   const links: TerminalFileLinkAtBufferPosition[] = []
   for (const logicalLine of buildCandidateLogicalLinesForBufferPosition(buffer, position.y)) {
-    for (const parsed of extractTerminalFileLinkCandidates(logicalLine.text)) {
+    for (const parsed of extractTerminalFileLinks(logicalLine.text)) {
       const range = rangeForParsedFileLink(logicalLine, parsed.startIndex, parsed.endIndex)
       if (!range || !rangeContainsBufferPosition(range, position, terminalColumns)) {
         continue
