@@ -57,13 +57,11 @@ vi.mock('../components/bottom-drawer-modal-host-scope', () => ({
   useBottomDrawerModalHost: () => null
 }))
 
+const hostFixtures = await vi.importActual<MobileQueuedEditHostFixtureModule>(
+  '../../../src/main/native-chat/agent-session-wire/mobile-queued-edit-host.test-fixture'
+)
+
 describe('real phone inline composer from More through picker pruning and host body', () => {
-  let hostFixtures: MobileQueuedEditHostFixtureModule
-  beforeAll(async () => {
-    hostFixtures = await vi.importActual<MobileQueuedEditHostFixtureModule>(
-      '../../../src/main/native-chat/agent-session-wire/mobile-queued-edit-host.test-fixture'
-    )
-  })
   const { state, Harness, mount, sendRequest, error, resolved, client } = mobileQueuedEditHarness()
   const profiles = [
     ['claude', 'model', '/model'],
