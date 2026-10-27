@@ -7,6 +7,17 @@ import {
   MAX_SKILL_REFS
 } from './structured-agent-session-message-params'
 
+const moveIdentity = {
+  envelope: MutationEnvelope,
+  messageId: Identifier('Invalid queued message id')
+}
+export const QueuedMessageMoveParams = z.union([
+  z
+    .object({ ...moveIdentity, beforeMessageId: Identifier('Invalid anchor id').nullable() })
+    .strict(),
+  z.object({ ...moveIdentity, afterMessageId: Identifier('Invalid anchor id') }).strict()
+])
+
 export const QueuedMessageUpdateParams = z
   .object({
     envelope: MutationEnvelope,

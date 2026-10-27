@@ -7,6 +7,7 @@ import {
   AGENT_SESSION_QUEUED_COMMANDS_RUNTIME_CAPABILITY,
   AGENT_SESSION_QUEUED_MESSAGES_RUNTIME_CAPABILITY,
   AGENT_SESSION_QUEUED_MESSAGE_EDIT_RUNTIME_CAPABILITY,
+  AGENT_SESSION_QUEUED_MESSAGE_REORDER_RUNTIME_CAPABILITY,
   AGENT_SESSION_QUEUED_MESSAGE_IMAGE_EDIT_RUNTIME_CAPABILITY,
   AGENT_SESSION_STATUS_FEED_RUNTIME_CAPABILITY,
   AGENT_SESSION_REPEATED_STOP_RUNTIME_CAPABILITY
@@ -31,6 +32,7 @@ export type StructuredAgentSessionHostSupport = {
   queuedCommands: boolean
   /** Absent on older hosts: queued Edit uses the legacy composer copy there. */
   queuedMessageEdit?: boolean
+  queuedMessageReorder?: boolean
   // Older hosts edit queued text only.
   queuedMessageImageEdit?: boolean
   queuedMessageSkillsEdit?: boolean
@@ -59,6 +61,9 @@ export function structuredAgentSessionHostSupport(
     queuedMessageEdit: capabilities.includes(AGENT_SESSION_QUEUED_MESSAGE_EDIT_RUNTIME_CAPABILITY),
     queuedMessageSkillsEdit: capabilities.includes(
       AGENT_SESSION_QUEUED_MESSAGE_SKILLS_EDIT_RUNTIME_CAPABILITY
+    ),
+    queuedMessageReorder: capabilities.includes(
+      AGENT_SESSION_QUEUED_MESSAGE_REORDER_RUNTIME_CAPABILITY
     ),
     queuedMessageImageEdit: capabilities.includes(
       AGENT_SESSION_QUEUED_MESSAGE_IMAGE_EDIT_RUNTIME_CAPABILITY

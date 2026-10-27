@@ -12,7 +12,7 @@ import { RepositoryHooksSection } from './repository/execution/RepositoryHooksSe
 import { McpConfigSection } from './McpConfigSection'
 import { WorktreeSymlinksSection } from './WorktreeSymlinksSection'
 import { SparsePresetSettingsSection } from './SparsePresetSettingsSection'
-import { RepositorySourceControlAiSection } from './RepositorySourceControlAiSection'
+import { RepositorySourceControlAiSection } from './repository/source-control/RepositorySourceControlAiSection'
 import { SearchableSetting } from './SearchableSetting'
 import { RepositoryRemoveProjectButton } from './RepositoryRemoveProjectButton'
 import { matchesSettingsSearch } from './settings-search'

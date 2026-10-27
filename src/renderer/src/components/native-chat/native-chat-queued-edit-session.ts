@@ -36,6 +36,7 @@ export type QueuedEditTransport = {
   /** The host advertises `agent-session.queued-message-image-edit.v1`: Save may replace images. */
   imagesCapable?: boolean
   skillsCapable?: boolean
+  reorderCapable?: boolean
   write: StructuredAgentSessionWrite
 }
 

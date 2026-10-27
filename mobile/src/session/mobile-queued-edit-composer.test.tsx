@@ -34,6 +34,15 @@ import { markRpcDeliveryUnknown } from '../transport/rpc-delivery-ambiguity'
 
 const picker = vi.hoisted(() => ({ pickFiles: vi.fn(), pickImages: vi.fn() }))
 vi.mock('../platform/media-picker', () => ({ useMediaPicker: () => picker }))
+vi.mock('../components/DragReorderList', () => ({ DragReorderList: 'DragReorderList' }))
+vi.mock('react-native-reanimated', async () => {
+  const { useRef } = await import('react')
+  return {
+    default: { ScrollView: 'ScrollView' },
+    useAnimatedRef: () => useRef(null),
+    useSharedValue: (value: unknown) => useRef({ value }).current
+  }
+})
 vi.mock('../components/ActionSheetModal', () => ({ ActionSheetModal: 'ActionSheetModal' }))
 vi.mock('../components/mounted-bottom-drawer', () => ({ MountedBottomDrawer: 'BottomDrawer' }))
 vi.mock('../components/bottom-drawer-modal-host-scope', () => ({

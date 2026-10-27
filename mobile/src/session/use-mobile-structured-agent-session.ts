@@ -235,6 +235,7 @@ export function useMobileStructuredAgentSession(
     agentWorking: isWorking,
     imagesCapable: hostSupport?.queuedMessageImageEdit === true,
     skillsCapable: hostSupport?.queuedMessageSkillsEdit === true,
+    reorderCapable: hostSupport?.queuedMessageReorder === true,
     editCapable: hostSupport ? hostSupport.queuedMessageEdit === true : null,
     chatActive: enabled,
     enabled: enabled && connected,

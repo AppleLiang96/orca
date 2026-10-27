@@ -20239,7 +20239,8 @@
       "streamedDetail": "La página se ejecuta en el host remoto y se transmite a este dispositivo."
     },
     "remote": {
-      "findUnavailable": "Buscar en la página no está disponible mientras esta página se transmite desde el host remoto."
+      "findUnavailable": "Buscar en la página no está disponible mientras esta página se transmite desde el host remoto.",
+      "selectionTooLargeToCopy": "La selección es demasiado grande para copiarla desde una página transmitida desde el host remoto."
     },
     "userAgentMigration": {
       "degradedDescription": "No se pudo inspeccionar una elección antigua de identidad del navegador. Elige Limpiada o Nativa en los ajustes del navegador; los cambios surten efecto tras reiniciar.",

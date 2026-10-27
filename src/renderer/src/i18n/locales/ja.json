@@ -3579,7 +3579,7 @@
             "openLink": "リンクを開く",
             "openFile": "ファイルを開く",
             "switchWorkspace": "ワークスペースを切り替える",
-            "openInFinder": "ファインダーで開く",
+            "openInFinder": "Finderで開く",
             "openFolder": "フォルダーを開く",
             "openWithDefaultApp": "デフォルトのアプリで開く",
             "switchTerminal": "スイッチ端子",
@@ -13304,7 +13304,7 @@
             "e887fa4b2e": "ターミナルで開く",
             "1d8e182c32": "ファイルを表示",
             "clipboardStagingUnavailable": "Orca の一時ストレージが利用できないため、ファイルをコピーできませんでした",
-            "revealInFinder": "ファインダーで表示",
+            "revealInFinder": "Finderで表示",
             "openContainingFolder": "含まれているフォルダーを開く",
             "revealInFileExplorer": "ファイルエクスプローラーで表示"
           },
@@ -20218,7 +20218,8 @@
       "streamedDetail": "ページはリモートホスト上で実行され、このデバイスにストリーミングされます。"
     },
     "remote": {
-      "findUnavailable": "このページがリモートホストからストリーミングされている間は、ページ内検索は利用できません。"
+      "findUnavailable": "このページがリモートホストからストリーミングされている間は、ページ内検索は利用できません。",
+      "selectionTooLargeToCopy": "選択範囲が大きすぎるため、リモートホストからストリーミングされているページからコピーできません。"
     },
     "userAgentMigration": {
       "degradedDescription": "古いブラウザ ID の選択を検査できませんでした。ブラウザ設定でクリーンまたはネイティブを選択します。変更は再起動後に有効になります。",

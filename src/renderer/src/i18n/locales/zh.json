@@ -20239,7 +20239,8 @@
       "streamedDetail": "该页面在远程主机上运行并流式传输到该设备。"
     },
     "remote": {
-      "findUnavailable": "当此页面从远程主机流式传输时，在页面中查找不可用。"
+      "findUnavailable": "当此页面从远程主机流式传输时，在页面中查找不可用。",
+      "selectionTooLargeToCopy": "所选内容太大，无法从远程主机流式传输的页面中复制。"
     },
     "userAgentMigration": {
       "degradedDescription": "无法检查旧的浏览器身份选择。在浏览器设置中选择 Cleaned 或 Native；更改在重新启动后生效。",
