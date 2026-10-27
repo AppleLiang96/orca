@@ -221,20 +221,16 @@ function removalHost(
   }
 }
 
-const deletionOperations = () => [
-  vi.spyOn(nativeFs, 'rm'),
-  vi.spyOn(nativeFs, 'unlink'),
-  vi.spyOn(nativeFs, 'rmdir')
-]
+const deletionOperations = () =>
+  (['rm', 'unlink', 'rmdir'] as const).map((operation) => vi.spyOn(nativeFs, operation))
 
 function expectNoTeardownOrDeletion(
   stop: ReturnType<typeof vi.fn>,
   teardown: ReturnType<typeof vi.fn>,
   operations: ReturnType<typeof deletionOperations>
 ): void {
-  expect(stop).not.toHaveBeenCalled()
-  expect(teardown).not.toHaveBeenCalled()
-  operations.forEach((operation) => expect(operation).not.toHaveBeenCalled())
+  const callbacks = [stop, teardown, ...operations]
+  callbacks.forEach((callback) => expect(callback).not.toHaveBeenCalled())
 }
 
 type RemovalEntry = 'desktop' | 'runtime'
@@ -302,6 +298,7 @@ async function deleteViaEntry(
 async function orphanAdmin(): Promise<void> {
   const admin = (await readFile(join(worktreePath, '.git'), 'utf8')).trim().replace(/^gitdir: /, '')
   await removeTree(admin)
+  await unlink(join(worktreePath, '.git'))
   await writeFile(join(worktreePath, '.git'), `  gitdir: ${admin}\nignored second line\n`)
 }
 
@@ -402,10 +399,7 @@ describe('finishing an interrupted worktree removal after a restart', () => {
       await rename(sibling, join(scratchDir, 'offline'))
       const path = phase === 'child' ? join(worktreePath, 'seed.txt') : worktreePath
       const locked = Object.assign(new Error('held path'), { code: 'EBUSY', path })
-      const held =
-        phase === 'child'
-          ? vi.spyOn(nativeFs, 'rm').mockRejectedValue(locked)
-          : vi.spyOn(nativeFs, 'rmdir').mockRejectedValue(locked)
+      const held = vi.spyOn(nativeFs, phase === 'child' ? 'rm' : 'rmdir').mockRejectedValue(locked)
       const { outcome, records } = await finishAfterRestart({ force: true })
       const message = `${path} is open in another program. Close that program and delete again.`
       expect(outcome.status).toBe('failed')
