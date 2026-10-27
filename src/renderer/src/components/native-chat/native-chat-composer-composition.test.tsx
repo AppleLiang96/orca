@@ -10,10 +10,6 @@ vi.mock('@/i18n/i18n', () => ({
   translate: (_key: string, fallback: string) => fallback
 }))
 
-vi.mock('./NativeChatComposerActions', () => ({
-  NativeChatComposerActions: () => <div data-testid="composer-actions" />
-}))
-
 vi.mock('./NativeChatAutocompleteMenus', () => ({
   NativeChatMentionMenu: () => null,
   NativeChatPickerMenu: () => null
@@ -24,6 +20,7 @@ import {
   type NativeChatComposerFieldProps
 } from './NativeChatComposerField'
 import { useImeEnterGestureOwnership } from '@/lib/ime-composition-keyboard-event'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 afterEach(() => cleanup())
 
@@ -31,7 +28,11 @@ type TestFieldProps = Omit<NativeChatComposerFieldProps, 'imeEnterGesture'>
 
 function TestField(props: TestFieldProps): React.JSX.Element {
   const imeEnterGesture = useImeEnterGestureOwnership()
-  return <NativeChatComposerField {...props} imeEnterGesture={imeEnterGesture} />
+  return (
+    <TooltipProvider>
+      <NativeChatComposerField {...props} imeEnterGesture={imeEnterGesture} />
+    </TooltipProvider>
+  )
 }
 
 function fieldProps(overrides: Partial<TestFieldProps> = {}): TestFieldProps {
@@ -83,6 +84,54 @@ describe('native chat composer drop ownership', () => {
     const view = render(<TestField {...fieldProps({ draftScopeKey: 'agent-session:session-9' })} />)
     expect(view.container.querySelector('[data-composer-scope-key]')).toBeNull()
     expect(view.container.querySelector('.ProseMirror')).not.toBeNull()
+  })
+})
+
+describe('queued edit placeholder ownership', () => {
+  it('names the edit while locally locked, keeping Cancel available and bottom copy unchanged', () => {
+    const cancel = vi.fn()
+    const props = fieldProps({
+      draftScopeKey: 'queued-edit:image-only',
+      editSession: { cancel },
+      imageAttachments: [
+        { id: 'retained-image', path: '/image.png', previewUrl: 'data:image/png;base64,AA==' }
+      ],
+      disabled: true,
+      canSend: false,
+      sendButtonDisabled: true,
+      attachDisabled: true,
+      dictationDisabled: true
+    })
+    const view = render(<TestField {...props} />)
+
+    expect(
+      screen.getByRole('textbox', { name: 'Edit message' }).getAttribute('contenteditable')
+    ).toBe('false')
+    expect(view.container.querySelector('[data-placeholder="Edit message"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true)
+    const cancelButton = screen.getByRole('button', { name: 'Cancel' })
+    expect(cancelButton.hasAttribute('disabled')).toBe(false)
+
+    view.rerender(<TestField {...props} disabled={false} canSend sendButtonDisabled={false} />)
+    expect(
+      screen.getByRole('textbox', { name: 'Edit message' }).getAttribute('contenteditable')
+    ).toBe('true')
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(false)
+    view.rerender(<TestField {...props} />)
+    expect(
+      screen.getByRole('textbox', { name: 'Edit message' }).getAttribute('contenteditable')
+    ).toBe('false')
+    expect(view.container.querySelector('[data-placeholder="Edit message"]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('disabled')).toBe(true)
+    expect(cancelButton.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(cancelButton)
+    expect(cancel).toHaveBeenCalledOnce()
+
+    view.rerender(
+      <TestField {...props} editSession={undefined} draftScopeKey="agent-session:bottom" />
+    )
+    expect(screen.getByRole('textbox', { name: 'Input is held by another device.' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()
   })
 })
 

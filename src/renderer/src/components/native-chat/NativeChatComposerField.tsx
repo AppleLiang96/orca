@@ -315,12 +315,14 @@ export function NativeChatComposerField({
                   : undefined
               }
               placeholder={
-                goalMode?.active
-                  ? translate(
-                      'components.native-chat.goal.placeholder',
-                      'Describe your goal, define measurable outcomes for best results'
-                    )
-                  : (unavailableHint ?? nativeChatComposerPlaceholder(hasPty, canSend, afterStop))
+                editSession
+                  ? translate('components.native-chat.queuedMessages.editMessage', 'Edit message')
+                  : goalMode?.active
+                    ? translate(
+                        'components.native-chat.goal.placeholder',
+                        'Describe your goal, define measurable outcomes for best results'
+                      )
+                    : (unavailableHint ?? nativeChatComposerPlaceholder(hasPty, canSend, afterStop))
               }
               // Let layout handle wrapping and touch targets; scroll after eight lines without JavaScript measurement.
               className={cn(
