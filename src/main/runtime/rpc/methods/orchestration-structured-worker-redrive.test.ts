@@ -24,7 +24,6 @@ import { ORCHESTRATION_METHODS } from './orchestration'
 import { STATUS_METHODS } from './status'
 import { createKeyedTrailingEdgeCoalescer } from '../../keyed-trailing-edge-coalescer'
 import { idOf, resultOf } from '../orchestration-session-caller-test-fixture'
-import { main } from '../../../../cli/index'
 import { createStructuredWorkerSessionForWorktree } from './orchestration/worker/worker-topology'
 
 vi.mock('./structured-agent-session-create', () => ({
@@ -251,6 +250,9 @@ describe('the structured redrive publication edge', () => {
         methods: [...STATUS_METHODS, ...ORCHESTRATION_METHODS]
       })
       const exitCode = process.exitCode
+      // The CLI has its own typecheck project; load its real entry point at the runtime boundary.
+      const cliPath = '../../../../cli/index'
+      const { main }: { main(argv: string[], cwd: string): Promise<void> } = await import(cliPath)
       const sendMail = async (subject: string) => {
         output.mockClear()
         process.exitCode = undefined
@@ -328,7 +330,7 @@ describe('the structured redrive publication edge', () => {
         visits.set(id, visited)
         return observe(id, visited)
       })
-    const workers = []
+    const workers: Awaited<ReturnType<typeof startWorker>>[] = []
     for (let index = 0; index < count; index += 1) {
       workers.push(await startWorker(undefined, index === 0 ? dispatchId : createDispatch()))
     }
