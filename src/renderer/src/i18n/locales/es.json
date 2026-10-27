@@ -13369,6 +13369,11 @@
           "inUse": "En uso",
           "useName": "Usar {{value0}}",
           "use": "Usar"
+        },
+        "PluginsAlphaNotice": {
+          "label": "Alpha:",
+          "body": "La interfaz de plugins puede cambiar. Espera matices.",
+          "dismiss": "Descartar aviso Alpha"
         }
       },
       "right": {
