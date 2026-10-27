@@ -19182,7 +19182,8 @@
           "title": "Add catalog {{value0}}?",
           "description": "A link asked to show {{value0}} from {{value1}}. Add catalogs only from people you trust.",
           "cancel": "Cancel",
-          "add": "Add catalog"
+          "add": "Add catalog",
+          "body": "A link asked to show {{value0}} from this catalog. Add catalogs only from people you trust."
         }
       }
     },

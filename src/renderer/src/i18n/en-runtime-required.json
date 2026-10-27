@@ -710,6 +710,11 @@
           "searchPlaceholder": "Search plugins, categories, or publishers"
         }
       },
+      "plugins": {
+        "PluginCatalogLinkDialog": {
+          "description": "A link asked to show {{value0}} from {{value1}}. Add catalogs only from people you trust."
+        }
+      },
       "right": {
         "sidebar": {
           "AiVaultPanel": {
